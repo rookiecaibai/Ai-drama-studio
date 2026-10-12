@@ -1,0 +1,63 @@
+# 本地一键起整套环境：api + MySQL + Nginx
+# 注意：本仓库开发机没有安装 Docker，所以这份配置**尚未实际运行验证过**，
+# 首次使用请按 docs/00-架构决策.md 里的"待验证清单"逐步确认。
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_change_me
+      MYSQL_DATABASE: ai_drama
+      MYSQL_USER: drama
+      MYSQL_PASSWORD: drama_password_change_me
+      TZ: Asia/Shanghai
+    command:
+      # utf8mb4：MySQL 的 "utf8" 其实是残缺的 3 字节实现，存 emoji 会报错
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"   # 映射到宿主 3307，避免和你本机已装的 MySQL(3306) 冲突
+    healthcheck:
+      # depends_on 的 service_healthy 靠这条判断，避免 API 比数据库先起来而连不上
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_password_change_me"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+    restart: unless-stopped
+    environment:
+      ENV: prod
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      DATABASE_URL: mysql+pymysql://drama:drama_password_change_me@db:3306/ai_drama?charset=utf8mb4
+      AUTO_CREATE_TABLES: "true"   # 首次跑通可以用；正式上线应改 false 并走 Alembic
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"   # 只对容器网络暴露，不直接映射到公网 —— 外界只能经 Nginx 进来
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  mysql_data:

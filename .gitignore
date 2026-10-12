@@ -1,0 +1,26 @@
+# 为什么要有 .gitignore：一旦把 .env 或数据库文件提交上去，
+# 密钥就永久留在 Git 历史里了（删掉文件也没用，得重写历史）。这是新手最常踩的坑之一。
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# 本地数据与密钥
+*.db
+*.sqlite3
+.env
+
+# pytest 的临时目录（有时会落在项目里而不是系统临时目录）
+pytest-of-*/
+.pytest_tmp/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

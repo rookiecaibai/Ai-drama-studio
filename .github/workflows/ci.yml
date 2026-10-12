@@ -1,0 +1,35 @@
+# CI：每次 push / PR 自动跑测试。
+# 为什么这件事对应届生特别重要：
+# 面试官打开你的 GitHub，看到一个带绿色 CI 徽章、有测试的项目，
+# 和看到一个只有 main 分支一堆 "update" 提交的项目，印象完全不同。
+# 而且它逼着你"代码必须是可测试的"——这本身就是工程能力的体现。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 跑测试
+        # 测试用 MockProvider + 临时 SQLite，所以不需要任何密钥和外部服务
+        run: pytest -q

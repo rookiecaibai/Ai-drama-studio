@@ -1,0 +1,33 @@
+# NOTE: keep this file pure ASCII.
+#
+# --only-binary=:all:
+#   Force prebuilt wheels only. Without it, pip may fall back to an sdist for
+#   packages like cffi (pulled in by cryptography) and try to COMPILE C code
+#   locally -- on a machine without a C toolchain that either fails after a long
+#   time or burns CPU for many minutes. This single line turns a 10-minute hang
+#   into a 40-second install. (This is a real bug we hit while building this repo.)
+--only-binary=:all:
+
+# Why: pip reads requirement files using the OS locale encoding unless a BOM or a
+# PEP 263 coding cookie is present. On a Chinese Windows (cp936/GBK) locale, a
+# UTF-8 file with non-ASCII comments crashes with UnicodeDecodeError.
+# Comments must stay in English here; Chinese explanations live in docs/.
+
+# Pinned versions on purpose: "yesterday it worked, today a fresh install broke"
+# is almost always caused by an upstream release. Pin, then upgrade explicitly.
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.15.0
+SQLAlchemy==2.1.4
+
+# MySQL driver. MySQL 8 defaults to caching_sha2_password, which needs the
+# cryptography package, otherwise you cannot connect at all.
+PyMySQL==1.2.3
+cryptography>=42.0.0
+
+python-dotenv==1.2.4
+httpx==0.28.1
+
+# Tests
+pytest==9.1.1

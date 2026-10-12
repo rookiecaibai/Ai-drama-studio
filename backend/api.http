@@ -1,0 +1,73 @@
+### PyCharm HTTP Client 请求集
+###
+### 为什么用 .http 文件而不是 Postman：
+### 1) 它跟着代码一起提交进 Git —— 接口变了，请求脚本也一起更新，不会有人拿着过期脚本调半天；
+### 2) 在 PyCharm 里点每行左边的绿色三角就能发请求，不用切窗口；
+### 3) 纯文本，能 review、能 diff，比 Postman 导出的 JSON 友好得多。
+###
+### 使用前提：先启动服务（右键 run.py -> Run 或 Debug）。
+
+@host = http://127.0.0.1:8000
+@api = {{host}}/api/v1
+
+### 1. 健康检查（含数据库连通性）
+GET {{api}}/health
+
+### 2. 创建短剧
+POST {{api}}/dramas
+Content-Type: application/json
+
+{
+  "title": "雨夜便利店",
+  "genre": "都市",
+  "logline": "雨夜的一次重逢，一张写着地址的纸条",
+  "style": "冷色调、手持镜头、霓虹反光"
+}
+
+### 3. 短剧列表（分页）
+GET {{api}}/dramas?offset=0&limit=20
+
+### 4. 短剧详情（含剧集列表）
+GET {{api}}/dramas/1
+
+### 5. 局部更新（只改标题，genre 应保持不变）
+PATCH {{api}}/dramas/1
+Content-Type: application/json
+
+{
+  "title": "雨夜便利店 II"
+}
+
+### 6. 新增一集（不传 number 会从 1 开始自动递增）
+POST {{api}}/dramas/1/episodes
+Content-Type: application/json
+
+{
+  "title": "第1集"
+}
+
+### 7. 剧集列表
+GET {{api}}/dramas/1/episodes
+
+### 8. AI 生成本集剧本与分镜（幂等：重复执行不会让镜头翻倍）
+POST {{api}}/episodes/1/generate
+Content-Type: application/json
+
+{
+  "shot_count": 6,
+  "extra_hint": "结尾留一个反转钩子"
+}
+
+### 9. 剧集详情（含全部镜头）
+GET {{api}}/episodes/1
+
+### 10. 错误路径验证：不存在的短剧应返回统一错误结构
+GET {{api}}/dramas/999999
+
+### 11. 参数校验验证：空标题应返回 422
+POST {{api}}/dramas
+Content-Type: application/json
+
+{
+  "title": ""
+}
