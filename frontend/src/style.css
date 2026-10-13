@@ -135,3 +135,45 @@ table.shots th, table.shots td {
   vertical-align: top;
 }
 table.shots th { background: var(--panel); }
+
+/* 新增一集面板 */
+.episode-header { margin-bottom: 10px; }
+.new-episode-panel {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.new-episode-panel h4 { margin: 0 0 10px; font-size: 15px; }
+
+/* 表单里的说明文字 */
+.episode-detail > label,
+.new-episode-panel > label {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.panel-actions .muted { font-size: 13px; }
+
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.section-title {
+  margin: 22px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 15px;
+}

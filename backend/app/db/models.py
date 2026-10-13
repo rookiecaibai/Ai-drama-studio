@@ -117,7 +117,14 @@ class GenerationLog(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    episode_id: Mapped[int] = mapped_column(ForeignKey("episodes.id", ondelete="CASCADE"), index=True)
+    episode_id: Mapped[int | None] = mapped_column(
+        ForeignKey("episodes.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    # 允许为空的原因：用户可以在"剧集还不存在"时先让 AI 起草大纲，
+    # 这条调用流水此刻还没有对应的剧集。
+    # 这次调用是干什么的：shots=生成分镜，synopsis=生成大纲。
+    # 分开记才能在月底算清"钱花在哪个环节"。
+    kind: Mapped[str] = mapped_column(String(20), default="shots", nullable=False)
     provider: Mapped[str] = mapped_column(String(40), default="", nullable=False)  # 用了哪家模型
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending/success/failed
 

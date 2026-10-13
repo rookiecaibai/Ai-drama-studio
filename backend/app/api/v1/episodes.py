@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep, SessionFactoryDep
 from app.core.errors import NotFoundError
 from app.db.models import Episode, GenerationTask, User
-from app.schemas.episode import EpisodeDetail, GenerateRequest
+from app.schemas.episode import EpisodeDetail, EpisodeUpdate, GenerateRequest
 from app.schemas.task import GenerationTaskRead
 from app.services.task_service import run_generation_task
 
@@ -19,6 +19,29 @@ def _get_owned_episode(db: DbSession, episode_id: int, user: User) -> Episode:
     # 与短剧同理：不属于你就当不存在（404），避免泄露资源是否存在
     if episode is None or episode.drama.owner_id != user.id:
         raise NotFoundError(f"剧集 {episode_id} 不存在")
+    return episode
+
+
+@router.patch("/{episode_id}", response_model=EpisodeDetail, summary="修改本集标题或大纲")
+def update_episode(
+    episode_id: int,
+    payload: EpisodeUpdate,
+    db: DbSession,
+    user: CurrentUser,
+) -> Episode:
+    """用户自己写大纲、改标题都走这个接口。
+
+    注意：这是**用户的内容**，AI 生成分镜时只读它、不会覆盖它
+    （见 script_service 里"仅当为空才填"的逻辑）。
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("title") is not None:
+        episode.title = data["title"].strip()
+    if data.get("synopsis") is not None:
+        episode.synopsis = data["synopsis"].strip()
+    db.commit()
+    db.refresh(episode)
     return episode
 
 

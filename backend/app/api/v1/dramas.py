@@ -4,11 +4,18 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep
 from app.core.errors import ConflictError, NotFoundError
 from app.db.models import Drama, Episode, User
 from app.schemas.drama import DramaCreate, DramaDetail, DramaRead, DramaUpdate
-from app.schemas.episode import EpisodeCreate, EpisodeRead
+from app.schemas.episode import (
+    EpisodeCreate,
+    EpisodeRead,
+    SynopsisGenerateRequest,
+    SynopsisRead,
+)
+from app.services.quota import QuotaService
+from app.services.synopsis_service import generate_synopsis
 
 router = APIRouter(prefix="/dramas", tags=["dramas"])
 
@@ -120,3 +127,62 @@ def list_episodes(drama_id: int, db: DbSession, user: CurrentUser) -> list[Episo
     _get_owned_drama(db, drama_id, user)
     stmt = select(Episode).where(Episode.drama_id == drama_id).order_by(Episode.number)
     return list(db.scalars(stmt))
+
+
+@router.post(
+    "/{drama_id}/synopsis/generate",
+    response_model=SynopsisRead,
+    summary="AI 起草某一集的大纲（只返回建议，不写库）",
+)
+async def generate_episode_synopsis(
+    drama_id: int,
+    payload: SynopsisGenerateRequest,
+    db: DbSession,
+    user: CurrentUser,
+    provider: LlmProvider,
+    quota: QuotaServiceDep,
+) -> SynopsisRead:
+    """把"本集标题 + 前几集内容"交给大模型，让它起草这一集的大纲。
+
+    两个刻意的设计：
+    1. **只返回建议，不写库** —— 大模型输出是概率性的，直接覆盖用户写好的内容不可接受；
+    2. 它是 LLM 调用，所以**和生成分镜共用同一套配额与流水**（kind=synopsis），
+       不然就出现了一个可以无限刷钱的口子。
+    """
+    drama = _get_owned_drama(db, drama_id, user)
+
+    # 如果是给"已存在的某一集"起草大纲，就把这条流水挂到那一集上，便于对账
+    log_episode_id: int | None = None
+    if payload.after_number is not None:
+        target = db.scalar(
+            select(Episode).where(
+                Episode.drama_id == drama.id,
+                Episode.number == payload.after_number,
+            )
+        )
+        if target is not None:
+            log_episode_id = target.id
+
+    quota.ensure_allowed(db, user.id)
+    log = quota.record(
+        db,
+        user_id=user.id,
+        episode_id=log_episode_id,
+        provider=provider.name,
+        kind="synopsis",
+    )
+
+    try:
+        synopsis, used_numbers = await generate_synopsis(
+            db,
+            drama=drama,
+            title=payload.title,
+            after_number=payload.after_number,
+            provider=provider,
+        )
+    except Exception:
+        QuotaService.finish(db, log, "failed")
+        raise
+
+    QuotaService.finish(db, log, "success")
+    return SynopsisRead(synopsis=synopsis, used_context_episodes=used_numbers)

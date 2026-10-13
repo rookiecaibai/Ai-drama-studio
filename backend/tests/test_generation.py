@@ -44,7 +44,10 @@ def test_generate_creates_task_and_shots(client):
 
     detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
     assert detail["status"] == "ready"
-    assert detail["title"] == "雨夜便利店"
+    # 用户没填大纲，所以采用模型返回的梗概（"仅当为空才填"规则）
+    assert detail["synopsis"] == "雨夜的便利店门口，女主等来一个不该出现的人，并收到一张写着地址的纸条。"
+    # 但标题是用户填的"第1集"，模型不能覆盖它
+    assert detail["title"] == "第1集"
     assert len(detail["shots"]) == 6
     assert [s["number"] for s in detail["shots"]] == [1, 2, 3, 4, 5, 6]
 

@@ -63,3 +63,9 @@ export interface GenerationTask {
   started_at: string | null
   finished_at: string | null
 }
+
+/** AI 起草大纲的返回：只给建议，不写库 —— 用户确认后再 PATCH 保存 */
+export interface SynopsisRead {
+  synopsis: string
+  used_context_episodes: number[]
+}

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.db.models import Drama, Episode, Shot
+from app.services.llm.parsing import extract_json as _extract_json
 from app.services.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -53,30 +54,6 @@ def _build_user_prompt(*, drama: Drama, episode: Episode, shot_count: int, extra
     if extra_hint:
         lines.append(f"额外要求：{extra_hint}")
     return "\n".join(lines)
-
-
-def _extract_json(text: str) -> dict:
-    """从模型输出里抠出 JSON。
-
-    现实情况：即使要求"只输出 JSON"，模型仍可能包一层 ```json``` 或加一句开场白，
-    所以必须有容错解析。这是 AI 应用开发和传统后端最大的差异之一：
-    上游返回是"概率性"的，代码必须假设它会不规范。
-    """
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
-    raw = fenced.group(1) if fenced else text
-
-    start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise AppError("大模型没有返回可解析的 JSON", code="llm_bad_output", status_code=502)
-
-    try:
-        data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise AppError(f"大模型返回的 JSON 解析失败: {exc}", code="llm_bad_output", status_code=502) from exc
-
-    if not isinstance(data, dict):
-        raise AppError("大模型返回的 JSON 顶层不是对象", code="llm_bad_output", status_code=502)
-    return data
 
 
 def _safe_str(value: object, limit: int | None = None) -> str:
@@ -136,9 +113,15 @@ async def generate_episode_script(
             )
         )
 
-    # 3) 顺手把标题/梗概/状态更新掉
-    episode.title = _safe_str(data.get("title"), 120) or episode.title
-    episode.synopsis = _safe_str(data.get("synopsis")) or episode.synopsis
+    # 3) 只在"用户没写"的时候才采用模型给的标题/大纲
+    #
+    # 为什么改成"仅当为空才填"：
+    # 用户现在可以自己写本集大纲（这是产品的核心输入），如果模型返回的梗概把它们覆盖掉，
+    # 用户写的东西就白写了。原则是：**用户的输入永远优先于模型的建议**。
+    if not episode.title.strip():
+        episode.title = _safe_str(data.get("title"), 120)
+    if not episode.synopsis.strip():
+        episode.synopsis = _safe_str(data.get("synopsis"))
     episode.status = "ready"
 
     db.commit()

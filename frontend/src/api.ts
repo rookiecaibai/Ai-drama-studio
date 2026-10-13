@@ -6,6 +6,7 @@ import type {
   Episode,
   EpisodeDetail,
   GenerationTask,
+  SynopsisRead,
   TokenResponse,
   User,
 } from './types'
@@ -87,10 +88,27 @@ export const api = {
 
   listEpisodes: (dramaId: number) =>
     request<Episode[]>(`/api/v1/dramas/${dramaId}/episodes`),
-  createEpisode: (dramaId: number, title: string) =>
+  createEpisode: (dramaId: number, title: string, synopsis: string) =>
     request<Episode>(`/api/v1/dramas/${dramaId}/episodes`, {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, synopsis }),
+    }),
+
+  /** 修改本集标题/大纲（用户自己写的内容走这里保存） */
+  updateEpisode: (episodeId: number, payload: { title?: string; synopsis?: string }) =>
+    request<EpisodeDetail>(`/api/v1/episodes/${episodeId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  /**
+   * 让 AI 起草大纲。只返回建议、不写库，用户确认后调 updateEpisode 保存。
+   * after_number 留空 = 接在现有所有剧集之后（新建一集时用）。
+   */
+  generateSynopsis: (dramaId: number, payload: { title: string; after_number?: number }) =>
+    request<SynopsisRead>(`/api/v1/dramas/${dramaId}/synopsis/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   getEpisode: (id: number) => request<EpisodeDetail>(`/api/v1/episodes/${id}`),

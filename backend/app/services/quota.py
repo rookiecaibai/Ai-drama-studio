@@ -54,15 +54,31 @@ class QuotaService:
                 status_code=429,
             )
 
-    def record(self, db: Session, *, user_id: int, episode_id: int, provider: str) -> GenerationLog:
+    def record(
+        self,
+        db: Session,
+        *,
+        user_id: int,
+        episode_id: int | None,
+        provider: str,
+        kind: str = "shots",
+    ) -> GenerationLog:
         """在真正调用大模型之前就记一条 pending 流水。
+
+        kind: shots=生成分镜，synopsis=生成大纲（分开记才能算清钱花在哪个环节）。
 
         为什么在调用"前"记而不是调用"后"记：
         如果只记成功的那部分，攻击者可以反复触发失败请求 ——
         失败请求一样要付钱给模型厂商。先占额度，失败也消耗，
         才能防止"靠重试刷你"。
         """
-        log = GenerationLog(user_id=user_id, episode_id=episode_id, provider=provider, status="pending")
+        log = GenerationLog(
+            user_id=user_id,
+            episode_id=episode_id,
+            provider=provider,
+            kind=kind,
+            status="pending",
+        )
         db.add(log)
         db.commit()
         db.refresh(log)

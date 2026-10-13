@@ -25,7 +25,18 @@ export default function DramaWorkspace({
   const [busy, setBusy] = useState(false)
 
   const [newDrama, setNewDrama] = useState({ title: '', genre: '都市', logline: '', style: '' })
-  const [newEpisodeTitle, setNewEpisodeTitle] = useState('')
+
+  // 「新增一集」面板：点按钮才展开，不再常驻一个输入框
+  const [showNewEpisode, setShowNewEpisode] = useState(false)
+  const [newEp, setNewEp] = useState({ title: '', synopsis: '' })
+  const [newEpHint, setNewEpHint] = useState('')
+
+  // 详情区的编辑草稿：用户改完点保存才写库，避免误改
+  const [draft, setDraft] = useState({ title: '', synopsis: '' })
+  const [draftHint, setDraftHint] = useState('')
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [aiBusy, setAiBusy] = useState<'new' | 'draft' | null>(null)
+
   const [shotCount, setShotCount] = useState(6)
   const [hint, setHint] = useState('')
 
@@ -53,7 +64,11 @@ export default function DramaWorkspace({
 
   const loadEpisode = useCallback(async (episodeId: number) => {
     try {
-      setSelectedEpisode(await api.getEpisode(episodeId))
+      const detail = await api.getEpisode(episodeId)
+      setSelectedEpisode(detail)
+      // 进入某一集时，把它现有的标题/大纲填进编辑区
+      setDraft({ title: detail.title, synopsis: detail.synopsis })
+      setDraftHint('')
     } catch (e) {
       showError(e)
     }
@@ -102,19 +117,89 @@ export default function DramaWorkspace({
     }
   }
 
-  async function createEpisode(e: React.FormEvent) {
-    e.preventDefault()
+  function openNewEpisode() {
+    setNewEp({ title: '', synopsis: '' })
+    setNewEpHint('')
+    setShowNewEpisode(true)
+  }
+
+  /** AI 起草大纲（新建一集）：依据「本集标题 + 前面所有剧集」，没有前情就只看短剧信息 */
+  async function aiDraftForNew() {
+    if (selectedDramaId === null) return
+    setAiBusy('new')
+    setError('')
+    try {
+      const res = await api.generateSynopsis(selectedDramaId, { title: newEp.title })
+      setNewEp((prev) => ({ ...prev, synopsis: res.synopsis }))
+      setNewEpHint(
+        res.used_context_episodes.length > 0
+          ? `AI 参考了第 ${res.used_context_episodes.join('、')} 集的内容起草`
+          : '这是第一集，AI 只依据短剧名称等信息起草',
+      )
+    } catch (err) {
+      showError(err)
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  /** AI 重新起草当前这一集的大纲（前情 = 编号比它小的剧集） */
+  async function aiDraftForCurrent() {
+    if (selectedDramaId === null || !selectedEpisode) return
+    setAiBusy('draft')
+    setError('')
+    try {
+      const res = await api.generateSynopsis(selectedDramaId, {
+        title: draft.title,
+        after_number: selectedEpisode.number,
+      })
+      setDraft((prev) => ({ ...prev, synopsis: res.synopsis }))
+      setDraftHint(
+        res.used_context_episodes.length > 0
+          ? `AI 参考了第 ${res.used_context_episodes.join('、')} 集 —— 满意就点「保存」`
+          : '这是第一集，AI 只依据短剧名称等信息起草 —— 满意就点「保存」',
+      )
+    } catch (err) {
+      showError(err)
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  async function createEpisode() {
     if (selectedDramaId === null) return
     setBusy(true)
     setError('')
     try {
-      await api.createEpisode(selectedDramaId, newEpisodeTitle)
-      setNewEpisodeTitle('')
-      await loadEpisodes(selectedDramaId)
+      const created = await api.createEpisode(selectedDramaId, newEp.title, newEp.synopsis)
+      setShowNewEpisode(false)
+      setNewEp({ title: '', synopsis: '' })
+      setEpisodes(await api.listEpisodes(selectedDramaId))
+      setTask(null)
+      // 建完立刻选中：它的编辑区 + 镜头生成区就在下方
+      await loadEpisode(created.id)
     } catch (err) {
       showError(err)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function saveDraft() {
+    if (!selectedEpisode) return
+    setSavingDraft(true)
+    setError('')
+    try {
+      const updated = await api.updateEpisode(selectedEpisode.id, draft)
+      setSelectedEpisode(updated)
+      setEpisodes((prev) =>
+        prev.map((e) => (e.id === updated.id ? { ...e, title: updated.title, synopsis: updated.synopsis } : e)),
+      )
+      setDraftHint('已保存')
+    } catch (err) {
+      showError(err)
+    } finally {
+      setSavingDraft(false)
     }
   }
 
@@ -211,14 +296,40 @@ export default function DramaWorkspace({
           ) : (
             <>
               <h2>剧集</h2>
-              <form onSubmit={createEpisode} className="inline-form">
-                <input
-                  placeholder="第 N 集标题（可选，自动编号）"
-                  value={newEpisodeTitle}
-                  onChange={(e) => setNewEpisodeTitle(e.target.value)}
-                />
-                <button type="submit" disabled={busy}>新增一集</button>
-              </form>
+              <div className="episode-header">
+                <button onClick={openNewEpisode} disabled={showNewEpisode}>＋ 新增一集</button>
+              </div>
+
+              {showNewEpisode && (
+                <section className="new-episode-panel">
+                  <h4>新增一集</h4>
+
+                  <label>本集标题（可选，留空则让 AI 起名）</label>
+                  <input
+                    placeholder="例如：末班车上的同一张脸"
+                    value={newEp.title}
+                    onChange={(e) => setNewEp({ ...newEp, title: e.target.value })}
+                  />
+
+                  <label>本集内容（大纲）—— AI 生成分镜时会以它为主要依据</label>
+                  <textarea
+                    rows={4}
+                    placeholder="写清这一集发生了什么：谁、在哪、做了什么、结尾留什么悬念。留空则让 AI 自行发挥。"
+                    value={newEp.synopsis}
+                    onChange={(e) => setNewEp({ ...newEp, synopsis: e.target.value })}
+                  />
+
+                  <div className="panel-actions">
+                    <button className="secondary" onClick={() => void aiDraftForNew()} disabled={aiBusy !== null}>
+                      {aiBusy === 'new' ? 'AI 起草中…' : 'AI 生成大纲'}
+                    </button>
+                    <button onClick={() => void createEpisode()} disabled={busy}>创建这一集</button>
+                    <button className="link" onClick={() => setShowNewEpisode(false)}>取消</button>
+                    {newEpHint && <span className="muted">{newEpHint}</span>}
+                  </div>
+                </section>
+              )}
+
               <ul className="episode-list">
                 {episodes.map((ep) => (
                   <li
@@ -234,9 +345,34 @@ export default function DramaWorkspace({
 
               {selectedEpisode && (
                 <section className="episode-detail">
-                  <h3>第 {selectedEpisode.number} 集 · {selectedEpisode.title || '（未命名）'}</h3>
-                  <p className="muted">{selectedEpisode.synopsis}</p>
+                  <h3>第 {selectedEpisode.number} 集</h3>
 
+                  <label>本集标题</label>
+                  <input
+                    placeholder="（未命名）"
+                    value={draft.title}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                  />
+
+                  <label>本集内容（大纲）—— 这是 AI 生成分镜的主要依据</label>
+                  <textarea
+                    rows={4}
+                    placeholder="写清这一集发生了什么。留空则让 AI 自行发挥。"
+                    value={draft.synopsis}
+                    onChange={(e) => setDraft({ ...draft, synopsis: e.target.value })}
+                  />
+
+                  <div className="panel-actions">
+                    <button className="secondary" onClick={() => void aiDraftForCurrent()} disabled={aiBusy !== null}>
+                      {aiBusy === 'draft' ? 'AI 起草中…' : 'AI 生成大纲'}
+                    </button>
+                    <button onClick={() => void saveDraft()} disabled={savingDraft}>
+                      {savingDraft ? '保存中…' : '保存'}
+                    </button>
+                    {draftHint && <span className="muted">{draftHint}</span>}
+                  </div>
+
+                  <h4 className="section-title">镜头生成</h4>
                   <div className="generate-bar">
                     <label>
                       镜头数
