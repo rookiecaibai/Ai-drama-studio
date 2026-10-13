@@ -1,6 +1,11 @@
 # 本地一键起整套环境：api + MySQL + Nginx
-# 注意：本仓库开发机没有安装 Docker，所以这份配置**尚未实际运行验证过**，
-# 首次使用请按 docs/00-架构决策.md 里的"待验证清单"逐步确认。
+# 注意：开发机没有安装 Docker，所以这份配置**尚未实机运行验证过**，
+# 首次使用请按 docs/05-部署验证清单.md 逐步确认。
+#
+# 用法：
+#   docker compose up --build          # 构建并启动（nginx 监听 http://localhost:8080）
+#   docker compose down                # 停止
+#   docker compose down -v             # 停止并删除数据库数据卷（数据全清）
 
 services:
   db:
@@ -37,8 +42,15 @@ services:
       ENV: prod
       DEBUG: "false"
       LOG_LEVEL: INFO
+      # MySQL 连接串：注意 charset=utf8mb4
       DATABASE_URL: mysql+pymysql://drama:drama_password_change_me@db:3306/ai_drama?charset=utf8mb4
-      AUTO_CREATE_TABLES: "true"   # 首次跑通可以用；正式上线应改 false 并走 Alembic
+      # 表结构由容器入口的 alembic upgrade head 管理，应用启动时不自动建表
+      AUTO_CREATE_TABLES: "false"
+      # 密钥从宿主环境注入（.env 或 shell 环境变量）；没设就用这个开发默认值
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-secret-change-me-in-production}
+      DAILY_GENERATION_LIMIT: ${DAILY_GENERATION_LIMIT:-20}
+      LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-10}
+      LOGIN_WINDOW_SEC: ${LOGIN_WINDOW_SEC:-600}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
@@ -48,6 +60,12 @@ services:
         condition: service_healthy
     expose:
       - "8000"   # 只对容器网络暴露，不直接映射到公网 —— 外界只能经 Nginx 进来
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
 
   nginx:
     image: nginx:1.27-alpine
@@ -57,7 +75,8 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   mysql_data:

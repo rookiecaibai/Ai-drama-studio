@@ -161,6 +161,7 @@ backend/
 - ✅ Alembic 迁移：基线 + audio_prompt + generation_logs 三条迁移，`alembic check` 零差异，有集成测试守护
 - ✅ 调用配额/限流：每日生成配额（含调用流水审计）+ 登录防爆破限流（内存版，生产需换 Redis）
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
-- ⚠️ Docker / docker-compose / Nginx 配置：已编写，但开发机未装 Docker，**尚未实机验证**
-- ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，未验证
+- ⚠️ Docker / docker-compose / Nginx：配置已按生产要求修正（入口自动跑迁移、健康检查、密钥注入），
+  **可验证部分已实测**，但整链路仍需装 Docker 后按 [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 走一遍
+- ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，迁移未在 MySQL 上实跑
 - ⏳ 待做：生成任务异步化、前端页面、大模型直连实测、CI 实跑

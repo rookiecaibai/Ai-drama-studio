@@ -21,8 +21,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # 注意：autogenerate 生成的原始版本是 nullable=False 且没有 server_default。
     # 如果表里已有数据，直接加 NOT NULL 无默认值的列会在生产库上直接失败。
-    # 所以手动补了 server_default="" —— 这就是"自动生成的迁移必须人工 review"的原因。
-    op.add_column('shots', sa.Column('audio_prompt', sa.Text(), nullable=False, server_default=""))
+    # 所以手动补了 server_default —— 这就是"自动生成的迁移必须人工 review"的原因。
+    #
+    # 跨数据库细节：MySQL 8.0.13+ 里 TEXT 列的默认值必须写成表达式 DEFAULT ('')，
+    # 直接写 DEFAULT '' 会报 1101 错误；SQLite 两者都接受。所以用 sa.text("('')")。
+    op.add_column('shots', sa.Column('audio_prompt', sa.Text(), nullable=False, server_default=sa.text("('')")))
 
 
 def downgrade() -> None:
