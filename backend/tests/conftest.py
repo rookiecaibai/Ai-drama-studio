@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
+from app.api.deps import get_session_factory_dep  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
@@ -43,6 +44,8 @@ def _build(tmp_path):
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
+    # 后台任务也要用测试库：把会话工厂也换成测试用的
+    app.dependency_overrides[get_session_factory_dep] = lambda: TestingSession
 
     # raise_server_exceptions=False：让未捕获异常也走统一错误处理器，返回 500 JSON
     return app, TestClient(app, raise_server_exceptions=False), engine

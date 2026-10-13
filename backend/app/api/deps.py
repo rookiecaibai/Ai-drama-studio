@@ -11,14 +11,14 @@ from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.ratelimit import LoginLimiter
 from app.core.security import decode_access_token
 from app.db.models import User
-from app.db.session import get_db
+from app.db.session import get_db, get_session_factory
 from app.services.llm.base import LLMProvider
 from app.services.llm.factory import build_provider
 from app.services.quota import QuotaService
@@ -61,6 +61,18 @@ def get_login_limiter() -> LoginLimiter:
 
 
 LoginLimiterDep = Annotated[LoginLimiter, Depends(get_login_limiter)]
+
+
+def get_session_factory_dep() -> sessionmaker[Session]:
+    """把会话工厂暴露成依赖。
+
+    后台任务不能用请求的会话（请求结束后会话就关了），需要自己开新会话。
+    把它做成依赖，测试里就能整体替换成测试数据库的会话工厂。
+    """
+    return get_session_factory()
+
+
+SessionFactoryDep = Annotated[sessionmaker[Session], Depends(get_session_factory_dep)]
 
 
 def get_current_user(

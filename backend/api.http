@@ -79,7 +79,7 @@ Content-Type: application/json
 GET {{api}}/dramas/1/episodes
 Authorization: Bearer {{auth_token}}
 
-### 9. AI 生成本集剧本与分镜（幂等：重复执行不会让镜头翻倍）
+### 9. AI 生成本集剧本与分镜 —— 现在返回 202 + 任务号，真正的生成在后台跑
 POST {{api}}/episodes/1/generate
 Authorization: Bearer {{auth_token}}
 Content-Type: application/json
@@ -89,8 +89,18 @@ Content-Type: application/json
   "extra_hint": "结尾留一个反转钩子"
 }
 
+> {% client.global.set("task_id", response.body.id); %}
+
+### 9.5 轮询任务状态（应看到 succeeded；failed 则看 error 字段）
+GET {{api}}/tasks/{{task_id}}
+Authorization: Bearer {{auth_token}}
+
 ### 10. 剧集详情（含全部镜头）
 GET {{api}}/episodes/1
+Authorization: Bearer {{auth_token}}
+
+### 10.5 我的生成任务列表（可按剧集筛选）
+GET {{api}}/tasks?episode_id=1
 Authorization: Bearer {{auth_token}}
 
 ### 11. 错误路径：不存在的短剧应返回统一错误结构

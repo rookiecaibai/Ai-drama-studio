@@ -1,8 +1,9 @@
-"""AI 生成流程的测试。
+"""AI 生成任务流程的测试（异步版）。
 
-关键点：测试里用的是 MockProvider，所以**不联网、不花钱、结果稳定**。
-面试时这也是个加分话术："我把大模型调用抽象成接口，测试用假实现，
-所以 CI 不依赖外部 API，也不会因为模型抽风而随机挂。"
+关键点：
+1. 测试里用的是 MockProvider，所以不联网、不花钱、结果稳定。
+2. TestClient 会在返回响应前执行完 BackgroundTasks，
+   所以创建任务后直接查状态就能看到终态（succeeded / failed），确定性可测。
 """
 
 
@@ -15,35 +16,57 @@ def _prepare_episode(client):
     return drama, episode
 
 
-def test_generate_creates_shots(client):
-    _, episode = _prepare_episode(client)
+def _start_generation(client, episode_id, shot_count=6):
+    """创建生成任务。返回任务 JSON（此刻应是 pending）。"""
+    resp = client.post(f"/api/v1/episodes/{episode_id}/generate", json={"shot_count": shot_count})
+    assert resp.status_code == 202, resp.text
+    return resp.json()
 
-    resp = client.post(f"/api/v1/episodes/{episode['id']}/generate", json={"shot_count": 6})
+
+def _wait_task(client, task_id):
+    resp = client.get(f"/api/v1/tasks/{task_id}")
     assert resp.status_code == 200, resp.text
-
-    body = resp.json()
-    assert body["status"] == "ready"
-    assert body["title"] == "雨夜便利店"  # 被 mock 结果覆盖
-    assert len(body["shots"]) == 6
-
-    numbers = [s["number"] for s in body["shots"]]
-    assert numbers == [1, 2, 3, 4, 5, 6]
-    assert all(s["description"] for s in body["shots"])
-    assert body["shots"][0]["shot_type"] == "特写"
+    return resp.json()
 
 
-def test_generate_is_idempotent(client):
-    """重复生成不会让镜头翻倍 —— 这是"全量替换"策略要保证的。"""
+def test_generate_creates_task_and_shots(client):
     _, episode = _prepare_episode(client)
 
-    client.post(f"/api/v1/episodes/{episode['id']}/generate", json={"shot_count": 6})
-    second = client.post(f"/api/v1/episodes/{episode['id']}/generate", json={"shot_count": 6})
+    task = _start_generation(client, episode["id"], shot_count=6)
+    # 刚返回时任务还没跑（响应先发、后台任务后执行）
+    assert task["status"] == "pending"
 
-    assert second.status_code == 200
-    assert len(second.json()["shots"]) == 6
+    finished = _wait_task(client, task["id"])
+    assert finished["status"] == "succeeded"
+    assert finished["error"] is None
+    assert finished["started_at"] is not None
+    assert finished["finished_at"] is not None
 
-    detail = client.get(f"/api/v1/episodes/{episode['id']}")
-    assert len(detail.json()["shots"]) == 6
+    detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
+    assert detail["status"] == "ready"
+    assert detail["title"] == "雨夜便利店"
+    assert len(detail["shots"]) == 6
+    assert [s["number"] for s in detail["shots"]] == [1, 2, 3, 4, 5, 6]
+
+
+def test_regenerate_is_idempotent(client):
+    _, episode = _prepare_episode(client)
+    _start_generation(client, episode["id"])
+    _start_generation(client, episode["id"])
+
+    detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
+    assert len(detail["shots"]) == 6  # 两次生成仍然只有 6 个镜头
+
+
+def test_task_list_filter_by_episode(client):
+    _, episode = _prepare_episode(client)
+    _start_generation(client, episode["id"])
+    _start_generation(client, episode["id"])
+
+    tasks = client.get(f"/api/v1/tasks?episode_id={episode['id']}").json()
+    assert len(tasks) == 2
+    assert all(t["episode_id"] == episode["id"] for t in tasks)
+    assert all(t["status"] == "succeeded" for t in tasks)
 
 
 def test_generate_unknown_episode_returns_404(client):
@@ -57,11 +80,8 @@ def test_generate_rejects_bad_shot_count(client):
     assert resp.status_code == 422
 
 
-def test_llm_bad_output_returns_502(client):
-    """模型返回垃圾内容时，应返回明确的 502 而不是 500 崩栈。
-
-    这里通过依赖覆盖注入一个"坏模型"，验证错误处理路径。
-    """
+def test_bad_llm_output_marks_task_failed(client):
+    """模型返回垃圾内容时：任务标记 failed 并记录错误，而不是 500 崩栈。"""
     _, episode = _prepare_episode(client)
 
     from app.api.deps import get_llm_provider
@@ -74,7 +94,22 @@ def test_llm_bad_output_returns_502(client):
             return "抱歉，我无法完成这个请求。"
 
     client.app.dependency_overrides[get_llm_provider] = lambda: BrokenProvider()
-    resp = client.post(f"/api/v1/episodes/{episode['id']}/generate", json={})
 
-    assert resp.status_code == 502
-    assert resp.json()["error"]["code"] == "llm_bad_output"
+    task = _start_generation(client, episode["id"])
+    finished = _wait_task(client, task["id"])
+    assert finished["status"] == "failed"
+    assert finished["error"]  # 错误原因落库，方便排查
+
+    # 剧集保持原样（draft、无镜头）
+    detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
+    assert detail["status"] == "draft"
+    assert detail["shots"] == []
+
+
+def test_task_visibility_is_per_user(client, login_as):
+    _, episode = _prepare_episode(client)
+    task = _start_generation(client, episode["id"])
+
+    bob_token = login_as("bob")
+    client.headers["Authorization"] = f"Bearer {bob_token}"
+    assert client.get(f"/api/v1/tasks/{task['id']}").status_code == 404

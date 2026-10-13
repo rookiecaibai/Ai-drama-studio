@@ -120,3 +120,28 @@ class GenerationLog(TimestampMixin, Base):
     episode_id: Mapped[int] = mapped_column(ForeignKey("episodes.id", ondelete="CASCADE"), index=True)
     provider: Mapped[str] = mapped_column(String(40), default="", nullable=False)  # 用了哪家模型
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending/success/failed
+
+
+class GenerationTask(TimestampMixin, Base):
+    """一次异步生成任务。
+
+    为什么生成必须异步（面试高频）：
+    同步做法里，用户点"生成"后 HTTP 连接要挂着等大模型几十秒 ——
+    期间占着一条连接、一个线程，浏览器还可能超时，用户也不知道进度。
+    异步做法：接口立即返回 202 和任务 id，实际生成在后台跑，
+    前端拿着任务 id 轮询 /tasks/{id} 看进度。这就是"任务队列"思想的最简形态。
+    """
+
+    __tablename__ = "generation_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    episode_id: Mapped[int] = mapped_column(ForeignKey("episodes.id", ondelete="CASCADE"), index=True)
+    # pending -> running -> succeeded / failed
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    shot_count: Mapped[int] = mapped_column(default=6, nullable=False)
+    extra_hint: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, default=None)  # 失败原因，成功时为 None
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)

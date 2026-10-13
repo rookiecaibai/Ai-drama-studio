@@ -84,7 +84,9 @@ python -m pytest
 | POST | `/api/v1/dramas/{id}/episodes` | 新增一集（集数自动递增） |
 | GET | `/api/v1/dramas/{id}/episodes` | 剧集列表 |
 | GET | `/api/v1/episodes/{id}` | 剧集详情（含分镜） |
-| POST | `/api/v1/episodes/{id}/generate` | **AI 生成本集剧本与分镜**（幂等覆盖） |
+| POST | `/api/v1/episodes/{id}/generate` | **创建 AI 生成任务**（202，异步执行） |
+| GET | `/api/v1/tasks/{id}` | 查询任务状态（轮询这个接口） |
+| GET | `/api/v1/tasks?episode_id={id}` | 我的生成任务列表 |
 
 ### 试一遍完整流程
 
@@ -156,12 +158,13 @@ backend/
 
 ## 当前状态（诚实清单）
 
-- ✅ 后端接口 + 测试：**已在本机实测通过（31 passed）**
+- ✅ 后端接口 + 测试：**已在本机实测通过（33 passed）**
 - ✅ JWT 鉴权 + 资源归属：注册/登录/me + 用户只能操作自己的短剧，**已实机验证**
-- ✅ Alembic 迁移：基线 + audio_prompt + generation_logs 三条迁移，`alembic check` 零差异，有集成测试守护
+- ✅ Alembic 迁移：4 条迁移链，`alembic check` 零差异，有集成测试守护
 - ✅ 调用配额/限流：每日生成配额（含调用流水审计）+ 登录防爆破限流（内存版，生产需换 Redis）
+- ✅ 生成任务异步化：202 + 任务状态轮询，实机验证接口 48ms 返回、后台执行、失败落库
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
 - ⚠️ Docker / docker-compose / Nginx：配置已按生产要求修正（入口自动跑迁移、健康检查、密钥注入），
   **可验证部分已实测**，但整链路仍需装 Docker 后按 [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 走一遍
 - ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，迁移未在 MySQL 上实跑
-- ⏳ 待做：生成任务异步化、前端页面、大模型直连实测、CI 实跑
+- ⏳ 待做：前端页面、大模型直连实测、CI 实跑

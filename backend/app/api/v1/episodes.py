@@ -1,15 +1,15 @@
-"""剧集与 AI 生成相关接口（需登录，且只能操作自己的剧集）。"""
+"""剧集与 AI 生成任务相关接口（需登录，且只能操作自己的剧集）。"""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep
+from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep, SessionFactoryDep
 from app.core.errors import NotFoundError
-from app.db.models import Episode, User
+from app.db.models import Episode, GenerationTask, User
 from app.schemas.episode import EpisodeDetail, GenerateRequest
-from app.services.quota import QuotaService
-from app.services.script_service import generate_episode_script
+from app.schemas.task import GenerationTaskRead
+from app.services.task_service import run_generation_task
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
 
@@ -31,39 +31,50 @@ def get_episode(episode_id: int, db: DbSession, user: CurrentUser) -> Episode:
 
 @router.post(
     "/{episode_id}/generate",
-    response_model=EpisodeDetail,
-    summary="AI 生成本集剧本与分镜（可重复调用，幂等覆盖）",
+    response_model=GenerationTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="创建 AI 生成任务（异步执行，用 GET /tasks/{id} 轮询进度）",
 )
-async def generate_script(
+def create_generation_task(
     episode_id: int,
     payload: GenerateRequest,
+    background_tasks: BackgroundTasks,
     db: DbSession,
     user: CurrentUser,
     provider: LlmProvider,
     quota: QuotaServiceDep,
-) -> Episode:
-    # 注意这里是 async：因为要 await 大模型调用。
-    # 如果写成同步函数，FastAPI 会把它丢到线程池跑，虽然也能用，
-    # 但等待网络 IO 时白白占一个线程；异步函数才能真正做到"等待期间不占资源"。
+    session_factory: SessionFactoryDep,
+) -> GenerationTask:
+    """设计变化：这个接口从"同步等结果"改成了"异步登记任务"。
+
+    202 Accepted 的语义就是：我收下了，但还没做完，稍后来查。
+    调用大模型要几十秒，HTTP 连接挂着干等又占资源又容易超时，
+    所以立即返回任务 id，实际生成在后台执行，前端轮询任务状态。
+    """
     episode = _get_owned_episode(db, episode_id, user)
 
-    # 配额：先检查、再占额度（调用前记 pending 流水，失败也消耗额度 ——
-    # 失败请求同样要给模型厂商付费，不消耗的话等于鼓励重试刷接口）
+    # 配额在"登记任务"时就检查和占用（失败也消耗，见 quota.py 的注释）
     quota.ensure_allowed(db, user.id)
     log = quota.record(db, user_id=user.id, episode_id=episode.id, provider=provider.name)
 
-    try:
-        result = await generate_episode_script(
-            db,
-            episode=episode,
-            drama=episode.drama,
-            provider=provider,
-            shot_count=payload.shot_count,
-            extra_hint=payload.extra_hint,
-        )
-    except Exception:
-        QuotaService.finish(db, log, "failed")
-        raise
-    else:
-        QuotaService.finish(db, log, "success")
-        return result
+    task = GenerationTask(
+        user_id=user.id,
+        episode_id=episode.id,
+        provider=provider.name,
+        shot_count=payload.shot_count,
+        extra_hint=payload.extra_hint,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    # 把真正耗时的生成丢到后台。注意传的是"会话工厂"而不是请求的会话：
+    # 请求结束后请求会话会被关闭，后台任务必须开自己的会话。
+    background_tasks.add_task(
+        run_generation_task,
+        task_id=task.id,
+        log_id=log.id,
+        provider=provider,
+        session_factory=session_factory,
+    )
+    return task
