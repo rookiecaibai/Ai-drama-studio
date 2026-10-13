@@ -18,6 +18,8 @@ os.environ.setdefault("IMAGE_PROVIDER", "mock")
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./_test_placeholder.db")
 # 测试生成的图片写到独立目录，跑完删掉，不污染仓库
 os.environ.setdefault("MEDIA_ROOT", "./_test_media")
+# 启动时的"中断任务对账"关掉：测试用临时库，任务状态由用例自己控制
+os.environ.setdefault("CLEANUP_INTERRUPTED_TASKS", "false")
 
 import shutil  # noqa: E402
 

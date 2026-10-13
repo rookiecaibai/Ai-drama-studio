@@ -236,6 +236,60 @@ Password 填你的密码 → Test Connection。
 | 测试全是红但命令行能过 | Default test runner 不是 pytest | 回到第 4 步 |
 | `pip install` 报 `UnicodeDecodeError: 'gbk' codec` | requirements 文件含非 ASCII 字符 | 见第 0 节坑一 |
 | `pip install` 长时间无响应、零输出 | pip 缓存损坏（见第 0 节坑二） | `python -m pip cache purge` 或加 `--no-cache-dir` |
+| 页面上按钮点了报 **`Failed to fetch`** | **后端没在跑**，或请求被系统代理拦了 | 见下方「Failed to fetch 到底是什么」 |
+
+## 9.2 `Failed to fetch` 到底是什么（以及为什么后端日志里查不到）
+
+这个报错**不是后端返回的**，而是浏览器在"请求根本没发出去 / 一个字节都没收到"时抛出的。
+所以它的排查方向和别的错误**完全相反**：
+
+```
+❌ 错误做法：去后端日志里翻，找"为什么这个接口报错"
+✅ 正确做法：后端日志里如果没有这条请求 —— 那结论就是"请求压根没到后端"
+```
+
+**判断方法**：后端 uvicorn 的访问日志会记录**每一个**到达的请求。
+如果日志里没有这一行，就说明问题在"浏览器 → 后端"这段路上，而不是后端代码里。
+
+常见的三种原因：
+
+| 原因 | 怎么确认 | 怎么解决 |
+|---|---|---|
+| **后端没启动 / 刚被停掉** | 后端窗口最后一行是 `Application shutdown complete` | 重新启动后端，页面刷新后重试 |
+| **被系统代理接管** | 下面单独说 | 换用 `localhost` 访问，或把 `127.0.0.1` 加进代理绕过名单 |
+| 端口写错 | 地址栏端口和后端日志里的端口不一致 | 用同一个端口 |
+
+### `localhost` 和 `127.0.0.1` 在代理眼里不是一回事
+
+查一下你的系统代理设置：
+
+```powershell
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' |
+  Select-Object ProxyEnable, ProxyServer, ProxyOverride
+```
+
+典型输出：
+
+```
+ProxyEnable   = 1
+ProxyServer   = http://127.0.0.1:65533
+ProxyOverride = ;localhost.*;;<local>
+```
+
+关键在于绕过名单：`localhost.*` 匹配的是**主机名** `localhost`，
+`<local>` 只匹配"不含点的主机名"——**而 `127.0.0.1` 是个带点的 IP，两者都盖不住它**。
+
+结果就是：**用 `http://127.0.0.1:8000` 访问会走代理，用 `http://localhost:8000` 访问不走代理。**
+
+代理软件一旦在切换模式（比如为了 `git push` 开了全局/TUN 模式），
+`127.0.0.1` 的请求就可能被掐断 —— 表现就是页面上随机某个按钮报 `Failed to fetch`，
+而后端日志干干净净。**开发时统一用 `http://localhost:8000` 访问**是最省心的做法。
+
+> **顺带一个工程收获**：浏览器原生的 `Failed to fetch` 对用户毫无意义，
+> 所以项目里 `frontend/src/api.ts` 专门捕获了这类网络异常，
+> 翻译成「无法连接后端服务（POST /api/v1/...）：请确认后端已启动、端口正确」，
+> 同时把原始错误打到浏览器控制台。**把机器的错误信息翻译成人能看懂的**，
+> 是前端很值得做的一件事。
 
 **关于最后一条，这是我在搭项目时真实踩到的坑，值得你记住**：
 

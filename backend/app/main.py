@@ -21,6 +21,7 @@ from app.core.logging import setup_logging
 from app.db import models  # noqa: F401  必须导入，表才会注册到 Base.metadata
 from app.db.base import Base
 from app.db.session import get_engine
+from app.services.task_service import mark_interrupted_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,14 @@ async def lifespan(app: FastAPI):
     if settings.auto_create_tables:
         Base.metadata.create_all(get_engine())
         logger.info("已根据模型创建/校验数据表")
+
+    # 对账：上次运行如果被中断（崩溃/停止/部署），数据库里会留下永远 running 的任务，
+    # 前端就会一直显示"生成中…"。启动时统一标记为失败，用户才能重试。
+    if settings.cleanup_interrupted_tasks:
+        try:
+            mark_interrupted_tasks()
+        except Exception:  # noqa: BLE001 —— 清理是尽最大努力，失败不该拦住服务启动
+            logger.warning("启动清理中断任务失败（表可能还没建好）", exc_info=True)
 
     logger.info("%s 启动完成 env=%s llm=%s", settings.app_name, settings.env, settings.llm_provider)
     yield

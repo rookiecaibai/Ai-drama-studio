@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     video_preset: str = "veryfast"
     daily_video_limit: int = 10
 
+    # 启动时把上次运行遗留的"假进行中"任务标记为失败
+    # （见 task_service.mark_interrupted_tasks）。测试里关掉：
+    # 测试用临时库，任务状态由用例自己控制。
+    cleanup_interrupted_tasks: bool = True
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

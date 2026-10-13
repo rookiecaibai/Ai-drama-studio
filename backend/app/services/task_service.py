@@ -18,7 +18,7 @@ BackgroundTasks 只是"进程内"的后台任务 —— 服务重启，没跑完
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Episode, GenerationLog, GenerationTask, Shot
@@ -36,6 +36,50 @@ logger = logging.getLogger(__name__)
 def _now() -> datetime:
     # 与数据库端 server_default=now() 的 naive UTC 保持一致
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def mark_interrupted_tasks(session_factory: sessionmaker[Session] | None = None) -> int:
+    """把上次运行遗留的 pending/running 任务标记为失败（服务启动时调用）。
+
+    为什么必须有这一步：
+    任务状态存在数据库里，但"正在执行"这件事只存在于**进程内存**中。
+    服务一旦重启（崩溃、部署、按停止键），数据库里那些任务会永远是 running ——
+    前端一直转圈，用户以为还在跑，其实永远不会完成了。
+    这就是本文档开头那条"诚实局限"的具体修法：状态机在库里，执行在进程里，
+    两者不一致时必须由启动流程来对账。
+
+    返回被清理的任务数。
+    """
+    if session_factory is None:
+        from app.db.session import get_session_factory
+
+        session_factory = get_session_factory()
+
+    with session_factory() as db:
+        tasks = (
+            db.execute(
+                update(GenerationTask)
+                .where(GenerationTask.status.in_(("pending", "running")))
+                .values(
+                    status="failed",
+                    error="服务重启导致任务中断，请重新生成",
+                    finished_at=_now(),
+                )
+            ).rowcount
+            or 0
+        )
+        # 调用流水同理：还留在 pending 的，实际上都已经结束了（没成功就是失败）
+        logs = (
+            db.execute(
+                update(GenerationLog).where(GenerationLog.status == "pending").values(status="failed")
+            ).rowcount
+            or 0
+        )
+        db.commit()
+
+    if tasks or logs:
+        logger.warning("启动清理：%s 个中断的任务、%s 条未完成的调用流水已标记为失败", tasks, logs)
+    return tasks
 
 
 def _finish_log(db: Session, log_id: int, status: str) -> None:

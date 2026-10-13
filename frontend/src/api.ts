@@ -42,7 +42,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const resp = await fetch(path, { ...options, headers })
+  let resp: Response
+  try {
+    resp = await fetch(path, { ...options, headers })
+  } catch (cause) {
+    // fetch 只在"请求根本没发出去 / 一个字节都没收到"时才抛异常：
+    // 后端没启动、端口不对、被代理或防火墙拦截、断网……
+    //
+    // 关键认知：**这不是后端返回的错误**，所以后端日志里不会有任何记录。
+    // 浏览器原生只会说一句 "Failed to fetch"，非常容易让人误以为是后端崩了 ——
+    // 所以这里翻译成人话，并把原始错误打到控制台供深入排查。
+    console.error(`[网络错误] ${options.method ?? 'GET'} ${path}`, cause)
+    throw new ApiError(
+      0,
+      'network_error',
+      `无法连接后端服务（${options.method ?? 'GET'} ${path}）：请确认后端已启动、端口正确，然后重试`,
+    )
+  }
+
   const text = await resp.text()
   const body: unknown = text ? JSON.parse(text) : null
 
