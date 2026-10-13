@@ -16,6 +16,13 @@
 | 大模型 | Provider 抽象 + Mock | 没有 API Key 也能跑通全流程和测试 |
 | 部署 | Docker + Nginx | 环境一致 + 反向代理/HTTPS 终止 |
 | 测试 | pytest + httpx | 依赖覆盖换测试库，不依赖外部服务 |
+| 接口文档 | Swagger UI / ReDoc（**本地自托管**） | 不依赖境外 CDN，内网和离线环境也能打开 `/docs` |
+
+> **关于接口文档为什么自托管**：FastAPI 默认让 `/docs` 去 `cdn.jsdelivr.net` 加载
+> Swagger UI 的 JS。该 CDN 在国内网络下经常连不上，表现是
+> **HTML 返回 200、页面却一片空白，且服务端日志毫无异常** —— 非常难排查。
+> 现在这两个文件放在 `backend/app/static/` 里由本项目自己提供，
+> 并且有回归测试（`test_docs_uses_local_assets`）保证 CDN 不会被重新引入。
 
 ## 快速开始
 

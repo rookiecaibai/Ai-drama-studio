@@ -17,3 +17,7 @@
 *.ico binary
 *.woff binary
 *.woff2 binary
+
+# 第三方前端静态资源（Swagger UI / ReDoc）保持原样：
+# 它们是 vendored 文件，做换行符转换只会产生无意义的大 diff
+backend/app/static/** -text
