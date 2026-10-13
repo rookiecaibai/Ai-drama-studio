@@ -42,5 +42,18 @@ python-multipart==0.0.32
 alembic==1.20.0
 PyYAML==6.0.3
 
+# Image generation support:
+#   Pillow is used by the MOCK image provider to draw a real placeholder PNG
+#   (that is what makes "can the browser actually show this image" testable),
+#   and it also validates/decodes images if needed later.
+Pillow==12.3.0
+
+# Video composition: ffmpeg is located in this order --
+#   1) FFMPEG_PATH setting, 2) system PATH, 3) the binary bundled in this wheel.
+# The wheel ships a static ffmpeg build, so a dev machine does NOT have to
+# install ffmpeg by hand. In production/Docker you can apt-get install ffmpeg
+# and leave this out.
+imageio-ffmpeg==0.6.0
+
 # Tests
 pytest==9.1.1
