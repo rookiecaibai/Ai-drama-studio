@@ -139,6 +139,25 @@ cd backend
 .venv\Scripts\python.exe -m alembic downgrade -1
 ```
 
+## 切换到本机 MySQL（已实测通过）
+
+本机 MySQL 9.6 已建好库 `ai_drama`（utf8mb4）和专用账号 `drama`，
+迁移和全链路冒烟均已实测。切过去只需要环境变量：
+
+```bash
+cd backend
+# PowerShell 里设置（或写进 .env，注意 .env 已被 gitignore 保护）
+$env:DATABASE_URL = "mysql+pymysql://drama:drama_password_change_me@127.0.0.1:3306/ai_drama?charset=utf8mb4"
+$env:AUTO_CREATE_TABLES = "false"     # 表结构由 alembic upgrade head 管理
+.venv\Scripts\python.exe -m alembic upgrade head
+.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
+**安全提醒**：你本机 MySQL 的 root 密码目前是 `123456`，太弱了。
+如果这台机器连过公网或共享过网络，建议改掉：
+`ALTER USER 'root'@'localhost' IDENTIFIED BY '一个强密码';`
+（我们的应用只用 `drama` 这个最小权限账号，不受影响。）
+
 ## 前端（Vite + React + TypeScript）
 
 前端代码在 `frontend/`，构建产物由 FastAPI 直接托管（同源部署，没有跨域问题）。
@@ -188,7 +207,7 @@ frontend/                    # Vite + React + TS 前端
 - ✅ 生成任务异步化：202 + 任务状态轮询，实机验证接口 48ms 返回、后台执行、失败落库
 - ✅ 前端：Vite + React + TS，登录/建剧/建集/生成/分镜表全流程，构建产物由 FastAPI 托管（实机验证）
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
+- ✅ MySQL 生产路径：本机 MySQL 9.6 实测通过 —— 4 条迁移执行成功、零差异，应用全链路冒烟 8 项通过（中文/emoji 往返正常）
 - ⚠️ Docker / docker-compose / Nginx：配置已按生产要求修正（入口自动跑迁移、健康检查、密钥注入），
   **可验证部分已实测**，但整链路仍需装 Docker 后按 [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 走一遍
-- ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，迁移未在 MySQL 上实跑
 - ⏳ 待做：推送到 GitHub（CI 实跑）、接真实大模型实测、Docker 整链路验证
