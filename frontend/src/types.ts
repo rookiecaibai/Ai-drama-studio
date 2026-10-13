@@ -34,6 +34,10 @@ export interface Episode {
   status: string
   created_at: string
   updated_at: string
+  /** 合成好的成片（通过 GET /episodes/{id}/video 播放） */
+  video_path: string | null
+  /** 合成失败的原因 */
+  video_error: string | null
 }
 
 export interface Shot {
@@ -50,6 +54,10 @@ export interface Shot {
   image_path: string | null
   /** 画面生成失败的原因 */
   image_error: string | null
+  /** 有值表示配音已生成（没有台词的镜头会一直是 null） */
+  audio_path: string | null
+  /** 配音生成失败的原因 */
+  audio_error: string | null
 }
 
 export interface EpisodeDetail extends Episode {
@@ -59,7 +67,7 @@ export interface EpisodeDetail extends Episode {
 export interface GenerationTask {
   id: number
   episode_id: number
-  kind: 'shots' | 'images'
+  kind: 'shots' | 'images' | 'audio' | 'video'
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   provider: string
   shot_count: number

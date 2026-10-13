@@ -126,6 +126,23 @@ export const api = {
       body: JSON.stringify({ only_missing: onlyMissing }),
     }),
 
-  /** 镜头画面的地址（需要带 Authorization 头，所以要用 AuthImage 组件取） */
+  /** 镜头画面的地址（需要带 Authorization 头，所以要用 AuthMedia 组件取） */
   shotImagePath: (shotId: number) => `/api/v1/shots/${shotId}/image`,
+
+  /** 为这一集的台词批量生成配音（TTS）。返回任务，前端轮询进度。 */
+  generateAudio: (episodeId: number, onlyMissing = true) =>
+    request<GenerationTask>(`/api/v1/episodes/${episodeId}/audio`, {
+      method: 'POST',
+      body: JSON.stringify({ only_missing: onlyMissing }),
+    }),
+
+  /** 镜头配音的地址（同样需要带 Authorization 头） */
+  shotAudioPath: (shotId: number) => `/api/v1/shots/${shotId}/audio`,
+
+  /** 把这一集的画面 + 配音合成成竖屏 MP4（本地 ffmpeg）。返回任务。 */
+  generateVideo: (episodeId: number) =>
+    request<GenerationTask>(`/api/v1/episodes/${episodeId}/video`, { method: 'POST' }),
+
+  /** 这一集成片的地址（需要带 Authorization 头） */
+  episodeVideoPath: (episodeId: number) => `/api/v1/episodes/${episodeId}/video`,
 }

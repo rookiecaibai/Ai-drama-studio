@@ -1,27 +1,33 @@
 import { useEffect, useState } from 'react'
 import { getToken } from './api'
 
+type MediaKind = 'image' | 'audio' | 'video'
+
 /**
- * 带鉴权的图片组件。
+ * 带鉴权的媒体组件（图片 / 音频 / 视频三合一）。
  *
- * 为什么不直接写 <img src="/api/v1/shots/1/image">：
- * 浏览器发 <img> 请求时**不会带上 Authorization 头**，而后端要求
- * "登录 + 归属校验"才能看图（不能做成公开静态目录，否则谁猜到 URL 谁就能看别人的图）。
+ * 为什么不直接写 <img src> / <audio src> / <video src>：
+ * 浏览器发这些标签的请求时**不会带上 Authorization 头**，而后端要求
+ * "登录 + 归属校验"才能取媒体（不能做成公开静态目录，否则谁猜到 URL 谁就能看别人的图）。
  *
- * 所以流程是：fetch 带 token 取回二进制 -> 转成 blob URL -> 再交给 <img> 显示。
+ * 所以流程是：fetch 带 token 取回二进制 -> 转成 blob URL -> 再交给对应标签。
  * 组件卸载时必须 revokeObjectURL，否则这些 blob 会一直占着内存（典型的内存泄漏）。
  */
-export default function AuthImage({
+export default function AuthMedia({
   path,
-  alt,
+  kind,
+  alt = '',
   className,
   cacheKey,
+  controls = true,
 }: {
   path: string
-  alt: string
+  kind: MediaKind
+  alt?: string
   className?: string
-  /** 变化时强制重新拉取（重新生成画面后，URL 没变但内容变了） */
+  /** 变化时强制重新拉取（重新生成后 URL 没变但内容变了） */
   cacheKey?: string | number
+  controls?: boolean
 }) {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
@@ -54,5 +60,8 @@ export default function AuthImage({
 
   if (failed) return <span className="muted">加载失败</span>
   if (!url) return <span className="muted">加载中…</span>
-  return <img src={url} alt={alt} className={className} />
+
+  if (kind === 'image') return <img src={url} alt={alt} className={className} />
+  if (kind === 'audio') return <audio src={url} className={className} controls={controls} preload="none" />
+  return <video src={url} className={className} controls={controls} preload="metadata" />
 }

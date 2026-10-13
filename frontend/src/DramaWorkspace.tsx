@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import AuthImage from './AuthImage'
+import AuthMedia from './AuthMedia'
 import type { Drama, Episode, EpisodeDetail, GenerationTask, User } from './types'
 
 const TASK_STATUS_TEXT: Record<GenerationTask['status'], string> = {
@@ -13,6 +13,8 @@ const TASK_STATUS_TEXT: Record<GenerationTask['status'], string> = {
 const TASK_KIND_TEXT: Record<GenerationTask['kind'], string> = {
   shots: '生成分镜',
   images: '生成画面',
+  audio: '生成配音',
+  video: '合成视频',
 }
 
 export default function DramaWorkspace({
@@ -45,8 +47,8 @@ export default function DramaWorkspace({
 
   const [shotCount, setShotCount] = useState(6)
   const [hint, setHint] = useState('')
-  // 画面重新生成后 URL 没变但内容变了，用这个版本号强制图片组件重新拉取
-  const [imageVersion, setImageVersion] = useState(0)
+  // 画面/配音/成片重新生成后，URL 没变但内容变了 —— 用这个版本号强制媒体组件重新拉取
+  const [mediaVersion, setMediaVersion] = useState(0)
 
   const loadedTaskId = useRef<number | null>(null)
 
@@ -96,7 +98,8 @@ export default function DramaWorkspace({
     if (task.status === 'succeeded' || task.status === 'failed') {
       if (task.status === 'succeeded' && loadedTaskId.current !== task.id) {
         loadedTaskId.current = task.id
-        if (task.kind === 'images') setImageVersion((v) => v + 1)
+        // 画面/配音/成片任务成功后，媒体内容变了，要强制重新拉取
+        if (task.kind !== 'shots') setMediaVersion((v) => v + 1)
         void loadEpisode(task.episode_id)
       }
       return
@@ -238,6 +241,40 @@ export default function DramaWorkspace({
     loadedTaskId.current = null
     try {
       setTask(await api.generateImages(selectedEpisode.id, true))
+    } catch (err) {
+      showError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** TTS：为这一集有台词的镜头批量生成配音 */
+  async function startAudioGeneration() {
+    if (!selectedEpisode) return
+    if (selectedEpisode.shots.length === 0) {
+      showError(new Error('这一集还没有分镜，请先点「AI 生成分镜」'))
+      return
+    }
+    setBusy(true)
+    setError('')
+    loadedTaskId.current = null
+    try {
+      setTask(await api.generateAudio(selectedEpisode.id, true))
+    } catch (err) {
+      showError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 合成成片：本地 ffmpeg 把「画面 + 配音」按时长拼成竖屏 MP4 */
+  async function startVideoComposition() {
+    if (!selectedEpisode) return
+    setBusy(true)
+    setError('')
+    loadedTaskId.current = null
+    try {
+      setTask(await api.generateVideo(selectedEpisode.id))
     } catch (err) {
       showError(err)
     } finally {
@@ -428,6 +465,22 @@ export default function DramaWorkspace({
                     >
                       生成画面
                     </button>
+                    <button
+                      className="secondary"
+                      onClick={() => void startAudioGeneration()}
+                      disabled={busy || selectedEpisode.shots.length === 0}
+                      title="把每个镜头的台词合成为语音（没有台词的镜头会跳过）"
+                    >
+                      生成配音
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => void startVideoComposition()}
+                      disabled={busy || selectedEpisode.shots.length === 0}
+                      title="把这一集的画面和配音拼成竖屏 MP4（需要先生成画面）"
+                    >
+                      合成视频
+                    </button>
                   </div>
 
                   {task && (
@@ -451,6 +504,7 @@ export default function DramaWorkspace({
                         <th>时长</th>
                         <th>画面描述</th>
                         <th>台词 / 旁白</th>
+                        <th>配音</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -459,11 +513,12 @@ export default function DramaWorkspace({
                           <td>{s.number}</td>
                           <td className="shot-image">
                             {s.image_path ? (
-                              <AuthImage
+                              <AuthMedia
+                                kind="image"
                                 path={api.shotImagePath(s.id)}
                                 alt={`镜头 ${s.number} 的画面`}
                                 className="thumb"
-                                cacheKey={imageVersion}
+                                cacheKey={mediaVersion}
                               />
                             ) : s.image_error ? (
                               <span className="image-error" title={s.image_error}>生成失败</span>
@@ -476,15 +531,54 @@ export default function DramaWorkspace({
                           <td>{s.duration_sec}s</td>
                           <td>{s.description}</td>
                           <td>{s.dialogue}</td>
+                          <td className="shot-audio">
+                            {s.audio_path ? (
+                              <AuthMedia
+                                kind="audio"
+                                path={api.shotAudioPath(s.id)}
+                                className="audio-player"
+                                cacheKey={mediaVersion}
+                              />
+                            ) : !(s.dialogue || '').trim() ? (
+                              <span className="muted">无台词</span>
+                            ) : s.audio_error ? (
+                              <span className="image-error" title={s.audio_error}>生成失败</span>
+                            ) : (
+                              <span className="muted">未生成</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                       {selectedEpisode.shots.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="muted">还没有分镜 —— 点"AI 生成分镜"</td>
+                          <td colSpan={8} className="muted">还没有分镜 —— 点"AI 生成分镜"</td>
                         </tr>
                       )}
                     </tbody>
                   </table>
+
+                  <h4 className="section-title">成片</h4>
+                  {selectedEpisode.video_path ? (
+                    <div className="video-panel">
+                      <AuthMedia
+                        kind="video"
+                        path={api.episodeVideoPath(selectedEpisode.id)}
+                        className="player"
+                        cacheKey={mediaVersion}
+                      />
+                      <p className="muted">
+                        竖屏 MP4（720×1280）· 点右上角"合成视频"可重新生成
+                      </p>
+                    </div>
+                  ) : selectedEpisode.video_error ? (
+                    <p className="image-error" title={selectedEpisode.video_error}>
+                      上次合成失败：{selectedEpisode.video_error}
+                    </p>
+                  ) : (
+                    <p className="muted">
+                      还没有成片 —— 先生成画面（配音可选），再点"合成视频"
+                    </p>
+                  )}
                 </section>
               )}
             </>

@@ -191,3 +191,21 @@ img.thumb {
   font-size: 12px;
   cursor: help;
 }
+
+/* 分镜表里的配音播放器 */
+.shot-audio { width: 220px; }
+audio.audio-player {
+  width: 210px;
+  height: 34px;
+}
+
+/* 成片播放区 */
+.video-panel { margin-top: 10px; }
+video.player {
+  width: 100%;
+  max-width: 300px; /* 竖屏视频，限制宽度就够了 */
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #000;
+  display: block;
+}
