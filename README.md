@@ -33,25 +33,29 @@ File → Open → 选择 ai-drama-studio 根目录（不要选 backend）
 ### 在命令行里
 
 ```bash
+# 0) 先在【项目根目录】建虚拟环境 —— 是 ai-drama-studio 这一层，不是 backend/ 里！
+#    （虚拟环境放根目录，PyCharm 能自动识别，也符合 .gitignore 的约定）
+python -m venv .venv
+.venv\Scripts\activate          # 命令行提示符前面出现 (.venv) 就表示激活成功
+
+# 1) 装依赖（国内用镜像；若 pip 卡死且无输出，先执行 python -m pip cache purge 清缓存）
+python -m pip install -r backend\requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 2) 进入后端目录
 cd backend
 
-# 1) 建虚拟环境并装依赖
-#    注意：必须带 --only-binary=:all:，否则 pip 可能去编译 cffi 源码而卡死十分钟
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install --only-binary=:all: -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 2) 配置（可选，不配也能跑：默认 SQLite + mock 模型）
+# 3) 配置（可选，不配也能跑：默认 SQLite + mock 模型）
 copy .env.example .env
 
-# 3) 启动（--reload 是热重载；调试断点请用 python run.py）
-.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+# 4) 启动（--reload 是热重载；调试断点请用 python run.py）
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
 打开 <http://127.0.0.1:8000/docs> 就能看到自动生成的接口文档并直接点着调。
 
 ```bash
 # 跑测试
-.venv\Scripts\python.exe -m pytest
+python -m pytest
 ```
 
 ## 接口一览

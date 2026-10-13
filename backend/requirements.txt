@@ -1,11 +1,14 @@
 # NOTE: keep this file pure ASCII.
 #
 # --only-binary=:all:
-#   Force prebuilt wheels only. Without it, pip may fall back to an sdist for
-#   packages like cffi (pulled in by cryptography) and try to COMPILE C code
-#   locally -- on a machine without a C toolchain that either fails after a long
-#   time or burns CPU for many minutes. This single line turns a 10-minute hang
-#   into a 40-second install. (This is a real bug we hit while building this repo.)
+#   Force prebuilt wheels only, so pip never tries to COMPILE a package like cffi
+#   (pulled in by cryptography) on a machine with no C toolchain. Wheels exist for
+#   win_amd64 / manylinux, so this is a cheap safety net that keeps installs fast
+#   and predictable.
+#
+#   NOTE: if `pip install -r requirements.txt` HANGS with no output, the culprit is
+#   NOT this line -- it is a corrupted pip HTTP cache. Clear it with
+#   `python -m pip cache purge`, or bypass with `--no-cache-dir`. See docs/02.
 --only-binary=:all:
 
 # Why: pip reads requirement files using the OS locale encoding unless a BOM or a

@@ -22,7 +22,7 @@ ai-drama-studio\.venv\            <- 项目专属虚拟环境（Python 3.12）
 别人 clone 你的代码后自己 `pip install -r requirements.txt` 重建即可，
 把虚拟环境提交上去只会让仓库变成几个 GB。
 
-### 建这个环境时真实踩到的两个坑（比教程本身值钱）
+### 建这个环境时真实踩到的三个坑（比教程本身值钱）
 
 **坑一：pip 直接崩了**
 
@@ -34,25 +34,34 @@ UnicodeDecodeError: 'gbk' codec can't decode byte 0x80 in position 34
 **系统区域编码**（你这里是 cp936/GBK），而文件是 UTF-8，于是解析器还没开始干活就炸了。
 现在文件第一行就写着 `keep this file pure ASCII`。
 
-**坑二：pip 卡了十几分钟，一个包都没装上**
+**坑二：pip 卡死 + 零输出，真正的元凶是损坏的缓存**
 
-现象很迷惑：`pip install six` 只要 2 秒，网络明明通，但一装这个项目的依赖就挂住。
-最后定位到进程列表里有一个 **烧掉 710 秒 CPU 的 base Python 进程**——
-pip 在给 `cryptography` 装依赖时，去下载了 `cffi` 的**源码包并试图用 C 编译器现场编译**。
+现象极具迷惑性：`pip install six` 只要 2 秒，`urllib` 访问镜像 0.37 秒，
+网络明明通，但一装这个项目就挂住，而且**一行输出都不打印**。
+我一开始归因到 cffi 编译、pip 版本、网络……全都错了。
 
-解决办法是在 requirements 里加一行：
+最后靠"控制变量 + 看进程 CPU"定位到真凶：**pip 的 HTTP 缓存被损坏了**。
+缓存目录里有 2565 个文件、其中两个分别高达 **3.1 GB 和 2.4 GB**——
+这是之前反复强杀 pip 进程留下的残缺下载。pip 读缓存时死循环，
+所以 CPU 飙到几百秒却没有任何输出。
 
+验证：加上 `--no-cache-dir`（跳过缓存），**完全相同的命令 21.7 秒装完**。
+
+```powershell
+# 根治：清掉损坏缓存（一次性，能释放好几个 GB）
+python -m pip cache purge
 ```
---only-binary=:all:
-```
 
-强制"只用预编译好的 wheel，不许现场编译"。结果：**十分钟的卡死变成 40 秒装完**。
+**坑三：`--only-binary=:all:` 是防"源码编译"，不是治卡死的**
 
-**这两个坑值得你记住的三点**：
-1. 报错信息里的 `gbk`、`cp936` 不是乱码问题，是**编码假设**问题 —— 跨环境时最容易被忽略的一类 bug；
-2. "网络慢"经常是错的直觉。真正的证据在进程的 CPU 时间里，不在你的感觉里；
-3. 给依赖加 `--only-binary=:all:` 是个好习惯：
-   没有 C/Rust 工具链的机器（包括大多数 Docker 基础镜像）遇到源码包就是这样卡死的。
+requirements 里的 `--only-binary=:all:` 是另一回事：它强制只用预编译 wheel，
+避免 pip 去编译 cffi 这类带 C 代码的包（没装 C 工具链的机器会卡很久或报错）。
+它有价值，但**不是坑二的解药**，别记混。
+
+**这三件事值得记住**：
+1. `gbk` / `cp936` 报错不是乱码问题，是**跨环境编码假设**问题；
+2. "网络慢"经常是错误直觉，**证据在进程 CPU 时间和缓存文件里，不在感觉里**；
+3. 诊断卡死要控制变量：同一条命令，只加/删一个参数，看结果变不变。
 
 ---
 
@@ -226,7 +235,7 @@ Password 填你的密码 → Test Connection。
 | 改代码不自动重启 | `run.py` 默认关 reload | 用终端跑 `--reload`，见第 5 节 |
 | 测试全是红但命令行能过 | Default test runner 不是 pytest | 回到第 4 步 |
 | `pip install` 报 `UnicodeDecodeError: 'gbk' codec` | requirements 文件含非 ASCII 字符 | 见第 0 节坑一 |
-| `pip install` 长时间无响应、CPU 飙高 | pip 在编译 cffi 源码 | 加 `--only-binary=:all:`，见第 0 节坑二 |
+| `pip install` 长时间无响应、零输出 | pip 缓存损坏（见第 0 节坑二） | `python -m pip cache purge` 或加 `--no-cache-dir` |
 
 **关于最后一条，这是我在搭项目时真实踩到的坑，值得你记住**：
 
