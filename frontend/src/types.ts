@@ -46,6 +46,10 @@ export interface Shot {
   duration_sec: number
   image_prompt: string
   audio_prompt: string
+  /** 有值表示画面已生成（前端据此决定显示图片还是"未生成"） */
+  image_path: string | null
+  /** 画面生成失败的原因 */
+  image_error: string | null
 }
 
 export interface EpisodeDetail extends Episode {
@@ -55,9 +59,12 @@ export interface EpisodeDetail extends Episode {
 export interface GenerationTask {
   id: number
   episode_id: number
+  kind: 'shots' | 'images'
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   provider: string
   shot_count: number
+  total: number
+  done: number
   error: string | null
   created_at: string
   started_at: string | null

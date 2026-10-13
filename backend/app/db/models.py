@@ -101,6 +101,10 @@ class Shot(TimestampMixin, Base):
     duration_sec: Mapped[float] = mapped_column(default=3.0, nullable=False)
     image_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 给文生图模型的提示词
     audio_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 给配音(TTS)的提示词：语气/语速/情绪
+    # 已经生成好的画面：存的是相对 media_root 的路径（文件在磁盘上，不入库）
+    image_path: Mapped[str | None] = mapped_column(String(255), default=None)
+    # 生成失败时的原因，成功则为 None —— 单张图失败不该让整个任务报废
+    image_error: Mapped[str | None] = mapped_column(Text, default=None)
 
     episode: Mapped[Episode] = relationship(back_populates="shots")
 
@@ -144,8 +148,14 @@ class GenerationTask(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     episode_id: Mapped[int] = mapped_column(ForeignKey("episodes.id", ondelete="CASCADE"), index=True)
+    # 任务类型：shots=生成分镜文本，images=生成每个镜头的画面
+    # 同一张任务表支持多种任务，前端用同一套轮询逻辑处理
+    kind: Mapped[str] = mapped_column(String(20), default="shots", nullable=False)
     # pending -> running -> succeeded / failed
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    # 进度：本次任务总共要处理多少项、完成了多少项（生成 6 张图时前端可以显示 3/6）
+    total: Mapped[int] = mapped_column(default=0, nullable=False)
+    done: Mapped[int] = mapped_column(default=0, nullable=False)
     provider: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     shot_count: Mapped[int] = mapped_column(default=6, nullable=False)
     extra_hint: Mapped[str] = mapped_column(Text, default="", nullable=False)

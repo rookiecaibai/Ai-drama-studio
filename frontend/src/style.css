@@ -177,3 +177,17 @@ button.secondary {
   border-top: 1px solid var(--border);
   font-size: 15px;
 }
+
+/* 分镜表里的画面缩略图 */
+.shot-image { width: 132px; }
+img.thumb {
+  width: 120px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+.image-error {
+  color: var(--danger);
+  font-size: 12px;
+  cursor: help;
+}

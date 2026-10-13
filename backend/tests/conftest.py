@@ -14,7 +14,12 @@ import os
 # 必须在导入 app 之前设置：配置是单例，一旦实例化就不会再读环境变量
 os.environ.setdefault("AUTO_CREATE_TABLES", "false")
 os.environ.setdefault("LLM_PROVIDER", "mock")
+os.environ.setdefault("IMAGE_PROVIDER", "mock")
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./_test_placeholder.db")
+# 测试生成的图片写到独立目录，跑完删掉，不污染仓库
+os.environ.setdefault("MEDIA_ROOT", "./_test_media")
+
+import shutil  # noqa: E402
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -27,6 +32,13 @@ from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 
 _ALICE = {"username": "alice", "password": "pw12345678"}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_media():
+    """整个测试会话结束后，清掉测试期间生成的图片。"""
+    yield
+    shutil.rmtree("_test_media", ignore_errors=True)
 
 
 def _build(tmp_path):

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import AuthImage from './AuthImage'
 import type { Drama, Episode, EpisodeDetail, GenerationTask, User } from './types'
 
 const TASK_STATUS_TEXT: Record<GenerationTask['status'], string> = {
@@ -7,6 +8,11 @@ const TASK_STATUS_TEXT: Record<GenerationTask['status'], string> = {
   running: '生成中',
   succeeded: '已完成',
   failed: '失败',
+}
+
+const TASK_KIND_TEXT: Record<GenerationTask['kind'], string> = {
+  shots: '生成分镜',
+  images: '生成画面',
 }
 
 export default function DramaWorkspace({
@@ -39,6 +45,8 @@ export default function DramaWorkspace({
 
   const [shotCount, setShotCount] = useState(6)
   const [hint, setHint] = useState('')
+  // 画面重新生成后 URL 没变但内容变了，用这个版本号强制图片组件重新拉取
+  const [imageVersion, setImageVersion] = useState(0)
 
   const loadedTaskId = useRef<number | null>(null)
 
@@ -88,6 +96,7 @@ export default function DramaWorkspace({
     if (task.status === 'succeeded' || task.status === 'failed') {
       if (task.status === 'succeeded' && loadedTaskId.current !== task.id) {
         loadedTaskId.current = task.id
+        if (task.kind === 'images') setImageVersion((v) => v + 1)
         void loadEpisode(task.episode_id)
       }
       return
@@ -210,6 +219,25 @@ export default function DramaWorkspace({
     loadedTaskId.current = null
     try {
       setTask(await api.generate(selectedEpisode.id, shotCount, hint))
+    } catch (err) {
+      showError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 文生图：为这一集的镜头批量生成画面（跳过已生成的，省钱） */
+  async function startImageGeneration() {
+    if (!selectedEpisode) return
+    if (selectedEpisode.shots.length === 0) {
+      showError(new Error('这一集还没有分镜，请先点「AI 生成分镜」'))
+      return
+    }
+    setBusy(true)
+    setError('')
+    loadedTaskId.current = null
+    try {
+      setTask(await api.generateImages(selectedEpisode.id, true))
     } catch (err) {
       showError(err)
     } finally {
@@ -392,14 +420,24 @@ export default function DramaWorkspace({
                     <button onClick={() => void startGeneration()} disabled={busy}>
                       {busy ? '提交中…' : 'AI 生成分镜'}
                     </button>
+                    <button
+                      className="secondary"
+                      onClick={() => void startImageGeneration()}
+                      disabled={busy || selectedEpisode.shots.length === 0}
+                      title="用每个镜头的文生图提示词生成画面（已生成的会跳过）"
+                    >
+                      生成画面
+                    </button>
                   </div>
 
                   {task && (
                     <p className="task-status">
-                      任务 #{task.id}：
+                      任务 #{task.id}（{TASK_KIND_TEXT[task.kind] ?? task.kind}）：
                       {task.status === 'failed'
                         ? `${TASK_STATUS_TEXT[task.status]}：${task.error ?? '未知错误'}`
-                        : TASK_STATUS_TEXT[task.status]}
+                        : task.status === 'running' && task.total > 0
+                          ? `${TASK_STATUS_TEXT[task.status]} ${task.done}/${task.total}`
+                          : TASK_STATUS_TEXT[task.status]}
                     </p>
                   )}
 
@@ -407,6 +445,7 @@ export default function DramaWorkspace({
                     <thead>
                       <tr>
                         <th>#</th>
+                        <th>画面</th>
                         <th>景别</th>
                         <th>运镜</th>
                         <th>时长</th>
@@ -418,6 +457,20 @@ export default function DramaWorkspace({
                       {selectedEpisode.shots.map((s) => (
                         <tr key={s.id}>
                           <td>{s.number}</td>
+                          <td className="shot-image">
+                            {s.image_path ? (
+                              <AuthImage
+                                path={api.shotImagePath(s.id)}
+                                alt={`镜头 ${s.number} 的画面`}
+                                className="thumb"
+                                cacheKey={imageVersion}
+                              />
+                            ) : s.image_error ? (
+                              <span className="image-error" title={s.image_error}>生成失败</span>
+                            ) : (
+                              <span className="muted">未生成</span>
+                            )}
+                          </td>
                           <td>{s.shot_type}</td>
                           <td>{s.camera}</td>
                           <td>{s.duration_sec}s</td>
@@ -427,7 +480,7 @@ export default function DramaWorkspace({
                       ))}
                       {selectedEpisode.shots.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="muted">还没有分镜 —— 点"AI 生成分镜"</td>
+                          <td colSpan={7} className="muted">还没有分镜 —— 点"AI 生成分镜"</td>
                         </tr>
                       )}
                     </tbody>

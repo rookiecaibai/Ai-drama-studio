@@ -118,4 +118,14 @@ export const api = {
       body: JSON.stringify({ shot_count: shotCount, extra_hint: extraHint }),
     }),
   getTask: (id: number) => request<GenerationTask>(`/api/v1/tasks/${id}`),
+
+  /** 为这一集的镜头批量生成画面（文生图）。返回任务，前端轮询进度。 */
+  generateImages: (episodeId: number, onlyMissing = true) =>
+    request<GenerationTask>(`/api/v1/episodes/${episodeId}/images`, {
+      method: 'POST',
+      body: JSON.stringify({ only_missing: onlyMissing }),
+    }),
+
+  /** 镜头画面的地址（需要带 Authorization 头，所以要用 AuthImage 组件取） */
+  shotImagePath: (shotId: number) => `/api/v1/shots/${shotId}/image`,
 }

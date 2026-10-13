@@ -56,6 +56,27 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     llm_timeout_sec: float = 60.0
 
+    # ---------- 图片生成（文生图） ----------
+    # mock: 本地生成一张把提示词画在画面上的占位图，不联网、不花钱（开发和测试用）
+    # openai_compat: 任何兼容 OpenAI 图片接口的服务
+    #   智谱 CogView-3-Flash（免费） base_url=https://open.bigmodel.cn/api/paas/v4
+    #   硅基流动                  base_url=https://api.siliconflow.cn/v1
+    image_provider: str = "mock"
+    image_api_key: str = ""
+    image_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    image_model: str = "cogview-3-flash"
+    image_size: str = "1024x1024"
+    # 不同厂商对"尺寸"参数的叫法不同：OpenAI / 智谱用 size，硅基流动用 image_size。
+    # 做成配置项，换厂商不用改代码。
+    image_size_param: str = "size"
+    image_timeout_sec: float = 120.0
+
+    # 生成的图片存哪里（相对 backend 目录）；对外通过带鉴权的接口读取，不做静态目录暴露
+    media_root: str = "./media"
+
+    # 每用户每天最多生成多少张图 —— 图片比文本贵得多，必须单独设限
+    daily_image_limit: int = 30
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

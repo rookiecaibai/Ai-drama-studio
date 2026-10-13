@@ -4,12 +4,19 @@ from fastapi import APIRouter, BackgroundTasks, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep, SessionFactoryDep
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    ImageProviderDep,
+    LlmProvider,
+    QuotaServiceDep,
+    SessionFactoryDep,
+)
 from app.core.errors import NotFoundError
 from app.db.models import Episode, GenerationTask, User
-from app.schemas.episode import EpisodeDetail, EpisodeUpdate, GenerateRequest
+from app.schemas.episode import EpisodeDetail, EpisodeUpdate, GenerateRequest, ImageGenerateRequest
 from app.schemas.task import GenerationTaskRead
-from app.services.task_service import run_generation_task
+from app.services.task_service import run_generation_task, run_image_task
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
 
@@ -99,5 +106,59 @@ def create_generation_task(
         log_id=log.id,
         provider=provider,
         session_factory=session_factory,
+    )
+    return task
+
+
+@router.post(
+    "/{episode_id}/images",
+    response_model=GenerationTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="为这一集的镜头批量生成画面（异步，用 GET /tasks/{id} 轮询进度）",
+)
+def create_image_task(
+    episode_id: int,
+    payload: ImageGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    user: CurrentUser,
+    provider: ImageProviderDep,
+    quota: QuotaServiceDep,
+    session_factory: SessionFactoryDep,
+) -> GenerationTask:
+    """文生图：把每个镜头的 image_prompt 变成一张画面。
+
+    和生成分镜是完全一样的套路：登记任务 -> 202 -> 后台跑 -> 前端轮询。
+    区别只在 kind=images，以及配额走 DAILY_IMAGE_LIMIT（图片贵得多，限额单独设）。
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+
+    quota.ensure_allowed(db, user.id, kind="images")
+    log = quota.record(
+        db,
+        user_id=user.id,
+        episode_id=episode.id,
+        provider=provider.name,
+        kind="images",
+    )
+
+    task = GenerationTask(
+        user_id=user.id,
+        episode_id=episode.id,
+        kind="images",
+        provider=provider.name,
+        shot_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    background_tasks.add_task(
+        run_image_task,
+        task_id=task.id,
+        log_id=log.id,
+        provider=provider,
+        session_factory=session_factory,
+        only_missing=payload.only_missing,
     )
     return task

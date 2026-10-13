@@ -61,3 +61,12 @@ class SynopsisGenerateRequest(BaseModel):
 class SynopsisRead(BaseModel):
     synopsis: str
     used_context_episodes: list[int] = []  # 这次生成参考了哪几集，让用户知道 AI 看了什么
+
+
+class ImageGenerateRequest(BaseModel):
+    """为某一集的镜头批量生成画面。"""
+
+    only_missing: bool = Field(
+        default=True,
+        description="True=只生成还没有画面的镜头（省钱，默认）；False=全部重新生成",
+    )

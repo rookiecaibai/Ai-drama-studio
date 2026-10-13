@@ -22,3 +22,8 @@ class ShotRead(ShotBase):
     id: int
     number: int
     created_at: datetime
+    # 画面生成结果：image_path 不为空表示已经有图了（前端据此决定显示图片还是待生成）
+    # 注意这里给的是"有没有图"，不是可直接访问的 URL ——
+    # 图片必须通过带鉴权的 GET /api/v1/shots/{id}/image 读取
+    image_path: str | None = None
+    image_error: str | None = None

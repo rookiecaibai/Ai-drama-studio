@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep
 from app.core.errors import ConflictError, NotFoundError
-from app.db.models import Drama, Episode, User
+from app.db.models import Drama, Episode, Shot, User
 from app.schemas.drama import DramaCreate, DramaDetail, DramaRead, DramaUpdate
 from app.schemas.episode import (
     EpisodeCreate,
@@ -14,6 +14,7 @@ from app.schemas.episode import (
     SynopsisGenerateRequest,
     SynopsisRead,
 )
+from app.services import media
 from app.services.quota import QuotaService
 from app.services.synopsis_service import generate_synopsis
 
@@ -82,8 +83,22 @@ def update_drama(drama_id: int, payload: DramaUpdate, db: DbSession, user: Curre
 @router.delete("/{drama_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除短剧")
 def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
     drama = _get_owned_drama(db, drama_id, user)
+
+    # 先收集所有已生成画面的文件路径 —— 数据库的级联删除只删记录，不会删磁盘文件。
+    # 不处理的话，每删一部剧就会在磁盘上留下一堆没人认领的孤儿图片。
+    image_paths = list(
+        db.scalars(
+            select(Shot.image_path)
+            .join(Episode, Shot.episode_id == Episode.id)
+            .where(Episode.drama_id == drama.id, Shot.image_path.is_not(None))
+        )
+    )
+
     db.delete(drama)  # cascade 会连带删掉剧集和镜头
     db.commit()
+
+    for rel_path in image_paths:
+        media.delete(rel_path)
 
 
 # ---------------- 剧集（挂在短剧下面） ----------------
@@ -163,7 +178,10 @@ async def generate_episode_synopsis(
         if target is not None:
             log_episode_id = target.id
 
-    quota.ensure_allowed(db, user.id)
+    # 注意 kind 必须和下面 record 时一致：
+    # 检查用哪个额度、流水记成哪个类型，两者对不上额度就形同虚设
+    # （这个 bug 正是被 test_ai_synopsis_consumes_quota 抓出来的）
+    quota.ensure_allowed(db, user.id, kind="synopsis")
     log = quota.record(
         db,
         user_id=user.id,

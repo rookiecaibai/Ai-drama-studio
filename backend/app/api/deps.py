@@ -19,6 +19,8 @@ from app.core.ratelimit import LoginLimiter
 from app.core.security import decode_access_token
 from app.db.models import User
 from app.db.session import get_db, get_session_factory
+from app.services.images.base import ImageProvider
+from app.services.images.factory import build_image_provider
 from app.services.llm.base import LLMProvider
 from app.services.llm.factory import build_provider
 from app.services.quota import QuotaService
@@ -41,11 +43,31 @@ LlmProvider = Annotated[LLMProvider, Depends(get_llm_provider)]
 
 
 def get_quota_service() -> QuotaService:
-    """按配置构造配额服务。写成依赖是为了测试时能换成"上限=2"的实例。"""
-    return QuotaService(daily_limit=get_settings().daily_generation_limit)
+    """按配置构造配额服务。
+
+    三种用途分别设限：生成分镜 / 生成大纲 用 DAILY_GENERATION_LIMIT，
+    生成画面用 DAILY_IMAGE_LIMIT（图片贵得多）。
+    写成依赖是为了测试时能换成"上限=2"的实例。
+    """
+    settings = get_settings()
+    return QuotaService(
+        limits={
+            "shots": settings.daily_generation_limit,
+            "synopsis": settings.daily_generation_limit,
+            "images": settings.daily_image_limit,
+        }
+    )
 
 
 QuotaServiceDep = Annotated[QuotaService, Depends(get_quota_service)]
+
+
+def get_image_provider() -> ImageProvider:
+    """文生图 Provider（和文本 Provider 完全同构的抽象）。"""
+    return build_image_provider(get_settings())
+
+
+ImageProviderDep = Annotated[ImageProvider, Depends(get_image_provider)]
 
 
 @lru_cache(maxsize=1)
