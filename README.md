@@ -117,6 +117,26 @@ curl -X POST http://127.0.0.1:8000/api/v1/episodes/1/generate \
 
 > 更省事的方式：打开 PyCharm 里的 [api.http](backend/api.http)，按注释顺序点绿色三角即可。
 
+## 数据库迁移（Alembic）
+
+生产环境不用 `create_all`（它只会新建表、不会改表），表结构变更走**迁移脚本**：
+
+```bash
+cd backend
+
+# 模型变了之后：自动生成迁移脚本（生成后务必人工 review！）
+.venv\Scripts\python.exe -m alembic revision --autogenerate -m "描述这次变更"
+
+# 把库升级到最新
+.venv\Scripts\python.exe -m alembic upgrade head
+
+# 检查模型和库是否一致（不一致=忘了生成迁移）
+.venv\Scripts\python.exe -m alembic check
+
+# 回滚一步（演练：先 downgrade -1 再 upgrade head）
+.venv\Scripts\python.exe -m alembic downgrade -1
+```
+
 ## 目录结构
 
 ```
@@ -136,9 +156,10 @@ backend/
 
 ## 当前状态（诚实清单）
 
-- ✅ 后端接口 + 测试：**已在本机实测通过（24 passed）**
+- ✅ 后端接口 + 测试：**已在本机实测通过（27 passed）**
 - ✅ JWT 鉴权 + 资源归属：注册/登录/me + 用户只能操作自己的短剧，**已实机验证**
+- ✅ Alembic 迁移：基线 + audio_prompt 变更迁移，`alembic check` 零差异，有集成测试守护
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
 - ⚠️ Docker / docker-compose / Nginx 配置：已编写，但开发机未装 Docker，**尚未实机验证**
 - ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，未验证
-- ⏳ 待做：Alembic 迁移、调用配额/限流、生成任务异步化、前端页面、大模型直连实测、CI 实跑
+- ⏳ 待做：调用配额/限流、生成任务异步化、前端页面、大模型直连实测、CI 实跑

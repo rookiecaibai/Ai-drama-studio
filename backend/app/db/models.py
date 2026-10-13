@@ -100,5 +100,6 @@ class Shot(TimestampMixin, Base):
     dialogue: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 台词/旁白
     duration_sec: Mapped[float] = mapped_column(default=3.0, nullable=False)
     image_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 给文生图模型的提示词
+    audio_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 给配音(TTS)的提示词：语气/语速/情绪
 
     episode: Mapped[Episode] = relationship(back_populates="shots")
