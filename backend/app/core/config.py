@@ -77,6 +77,26 @@ class Settings(BaseSettings):
     # 每用户每天最多生成多少张图 —— 图片比文本贵得多，必须单独设限
     daily_image_limit: int = 30
 
+    # ---------- 配音（TTS） ----------
+    # mock: 本地合成一段可播放的提示音，不联网、不花钱
+    # openai_compat: 兼容 OpenAI /audio/speech 的服务
+    #   硅基流动 CosyVoice：base_url=https://api.siliconflow.cn/v1
+    #                        model=FunAudioLLM/CosyVoice2-0.5B  voice=claire
+    #   OpenAI：            base_url=https://api.openai.com/v1  model=gpt-4o-mini-tts
+    tts_provider: str = "mock"
+    tts_api_key: str = ""
+    tts_base_url: str = "https://api.siliconflow.cn/v1"
+    tts_model: str = "FunAudioLLM/CosyVoice2-0.5B"
+    tts_voice: str = "claire"
+    tts_response_format: str = "mp3"
+    # 有些厂商支持用 instructions 参数控制语气；不支持的厂商发了会 400，
+    # 所以默认留空 = 不发送。填上字段名（如 instructions）即可启用镜头的 audio_prompt。
+    tts_instructions_param: str = ""
+    tts_timeout_sec: float = 120.0
+
+    # 每用户每天最多生成多少段配音
+    daily_audio_limit: int = 60
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

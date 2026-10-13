@@ -25,6 +25,8 @@ from app.services.image_service import generate_images_for_episode
 from app.services.images.base import ImageProvider
 from app.services.llm.base import LLMProvider
 from app.services.script_service import generate_episode_script
+from app.services.tts.base import TtsProvider
+from app.services.tts_service import generate_audio_for_episode
 
 logger = logging.getLogger(__name__)
 
@@ -149,3 +151,66 @@ async def run_image_task(
         task.finished_at = _now()
         db.commit()
         logger.info("任务 %s 结束：计划 %s 张，成功 %s 张", task_id, planned, succeeded)
+
+
+async def run_audio_task(
+    *,
+    task_id: int,
+    log_id: int,
+    provider: TtsProvider,
+    session_factory: sessionmaker[Session],
+    only_missing: bool = True,
+) -> None:
+    """后台为某一集的台词批量生成配音。
+
+    和图片任务同构：同一张任务表、同一套状态机、同一个轮询接口，只是 kind=audio。
+    """
+    with session_factory() as db:
+        task = db.get(GenerationTask, task_id)
+        if task is None:
+            logger.warning("任务 %s 不存在，跳过", task_id)
+            return
+
+        task.status = "running"
+        task.started_at = _now()
+        db.commit()
+        logger.info("任务 %s 开始生成配音（provider=%s）", task_id, provider.name)
+
+        def _on_total(total: int) -> None:
+            task.total = total
+            db.commit()
+
+        def _on_progress() -> None:
+            task.done += 1
+            db.commit()
+
+        try:
+            episode = db.get(Episode, task.episode_id)
+            planned, succeeded = await generate_audio_for_episode(
+                db,
+                episode=episode,
+                provider=provider,
+                only_missing=only_missing,
+                on_total=_on_total,
+                on_progress=_on_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            task.status = "failed"
+            task.error = str(exc)[:500]
+            task.finished_at = _now()
+            db.commit()
+            _finish_log(db, log_id, "failed")
+            logger.exception("任务 %s 失败", task_id)
+            return
+
+        if planned > 0 and succeeded == 0:
+            task.status = "failed"
+            task.error = f"{planned} 段配音全部生成失败，请查看各镜头的说明"
+            _finish_log(db, log_id, "failed")
+        else:
+            task.status = "succeeded"
+            _finish_log(db, log_id, "success")
+
+        task.finished_at = _now()
+        db.commit()
+        logger.info("任务 %s 结束：计划 %s 段，成功 %s 段", task_id, planned, succeeded)

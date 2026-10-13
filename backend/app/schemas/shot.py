@@ -27,3 +27,6 @@ class ShotRead(ShotBase):
     # 图片必须通过带鉴权的 GET /api/v1/shots/{id}/image 读取
     image_path: str | None = None
     image_error: str | None = None
+    # 配音同理：走 GET /api/v1/shots/{id}/audio
+    audio_path: str | None = None
+    audio_error: str | None = None

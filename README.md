@@ -91,7 +91,9 @@ python -m pytest
 | PATCH | `/api/v1/episodes/{id}` | 修改本集标题 / 大纲（用户自己写的内容） |
 | POST | `/api/v1/episodes/{id}/generate` | **创建 AI 生成分镜任务**（202，异步执行） |
 | POST | `/api/v1/episodes/{id}/images` | **批量生成镜头画面**（文生图，202，异步执行） |
+| POST | `/api/v1/episodes/{id}/audio` | **批量生成台词配音**（TTS，只给有台词的镜头，202） |
 | GET | `/api/v1/shots/{id}/image` | 读取镜头画面（**需登录 + 归属校验**，返回 PNG 字节） |
+| GET | `/api/v1/shots/{id}/audio` | 读取镜头配音（同样需鉴权，Content-Type 按实际格式给） |
 | GET | `/api/v1/tasks/{id}` | 查询任务状态（轮询这个接口） |
 | GET | `/api/v1/tasks?episode_id={id}` | 我的生成任务列表 |
 
@@ -104,6 +106,8 @@ python -m pytest
 ③ 该集下方紧接着「镜头生成」：填镜头数 + 额外要求 → AI 生成分镜
       └─ 202 + 任务号，前端轮询进度，完成后刷新分镜表
 ④ 点「生成画面」：把每个镜头的英文提示词交给文生图模型 → 分镜表里出现缩略图
+⑤ 点「生成配音」：把每个镜头的台词交给 TTS → 只有台词的镜头会生成，可在表里播放
+⑥ 点「合成视频」：按镜头顺序，把画面 + 配音按时长拼成竖屏 MP4 → 在线播放/下载
 ```
 
 **两条重要的设计原则**：

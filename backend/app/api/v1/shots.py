@@ -40,3 +40,21 @@ def get_shot_image(shot_id: int, db: DbSession, user: CurrentUser) -> FileRespon
         # 所以加 no-cache 让浏览器每次都取新的，避免看到旧图
         headers={"Cache-Control": "no-cache"},
     )
+
+
+@router.get("/{shot_id}/audio", summary="读取镜头配音（需要登录，且只能读自己的）")
+def get_shot_audio(shot_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+    """和画面同理：音频也是用户私有内容，必须走鉴权接口。
+
+    注意 Content-Type 必须按实际扩展名给 —— 给错了浏览器播放器会直接拒绝播放。
+    """
+    shot = _get_owned_shot(db, shot_id, user)
+
+    if not shot.audio_path or not media.exists(shot.audio_path):
+        raise NotFoundError("这个镜头还没有配音")
+
+    return FileResponse(
+        media.absolute_path(shot.audio_path),
+        media_type=media.content_type_for(shot.audio_path),
+        headers={"Cache-Control": "no-cache"},
+    )

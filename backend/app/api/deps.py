@@ -24,6 +24,8 @@ from app.services.images.factory import build_image_provider
 from app.services.llm.base import LLMProvider
 from app.services.llm.factory import build_provider
 from app.services.quota import QuotaService
+from app.services.tts.base import TtsProvider
+from app.services.tts.factory import build_tts_provider
 
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -55,6 +57,7 @@ def get_quota_service() -> QuotaService:
             "shots": settings.daily_generation_limit,
             "synopsis": settings.daily_generation_limit,
             "images": settings.daily_image_limit,
+            "audio": settings.daily_audio_limit,
         }
     )
 
@@ -68,6 +71,14 @@ def get_image_provider() -> ImageProvider:
 
 
 ImageProviderDep = Annotated[ImageProvider, Depends(get_image_provider)]
+
+
+def get_tts_provider() -> TtsProvider:
+    """配音 Provider（同一套抽象，第三种模态）。"""
+    return build_tts_provider(get_settings())
+
+
+TtsProviderDep = Annotated[TtsProvider, Depends(get_tts_provider)]
 
 
 @lru_cache(maxsize=1)

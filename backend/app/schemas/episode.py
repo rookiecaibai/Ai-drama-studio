@@ -70,3 +70,12 @@ class ImageGenerateRequest(BaseModel):
         default=True,
         description="True=只生成还没有画面的镜头（省钱，默认）；False=全部重新生成",
     )
+
+
+class AudioGenerateRequest(BaseModel):
+    """为某一集的台词批量生成配音。"""
+
+    only_missing: bool = Field(
+        default=True,
+        description="True=只生成还没有配音的镜头（默认）；False=全部重新生成",
+    )

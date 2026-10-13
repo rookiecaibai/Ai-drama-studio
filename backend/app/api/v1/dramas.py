@@ -84,21 +84,21 @@ def update_drama(drama_id: int, payload: DramaUpdate, db: DbSession, user: Curre
 def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
     drama = _get_owned_drama(db, drama_id, user)
 
-    # 先收集所有已生成画面的文件路径 —— 数据库的级联删除只删记录，不会删磁盘文件。
-    # 不处理的话，每删一部剧就会在磁盘上留下一堆没人认领的孤儿图片。
-    image_paths = list(
-        db.scalars(
-            select(Shot.image_path)
-            .join(Episode, Shot.episode_id == Episode.id)
-            .where(Episode.drama_id == drama.id, Shot.image_path.is_not(None))
-        )
-    )
+    # 先收集所有已生成媒体（画面 + 配音）的文件路径 ——
+    # 数据库的级联删除只删记录，不会删磁盘文件。
+    # 不处理的话，每删一部剧就会在磁盘上留下一堆没人认领的孤儿文件。
+    media_rows = db.execute(
+        select(Shot.image_path, Shot.audio_path)
+        .join(Episode, Shot.episode_id == Episode.id)
+        .where(Episode.drama_id == drama.id)
+    ).all()
 
     db.delete(drama)  # cascade 会连带删掉剧集和镜头
     db.commit()
 
-    for rel_path in image_paths:
-        media.delete(rel_path)
+    for image_path, audio_path in media_rows:
+        media.delete(image_path)
+        media.delete(audio_path)
 
 
 # ---------------- 剧集（挂在短剧下面） ----------------

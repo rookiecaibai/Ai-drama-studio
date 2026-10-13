@@ -34,6 +34,36 @@ def shot_image_rel_path(shot_id: int) -> str:
     return f"shots/{shot_id}.png"
 
 
+def shot_audio_rel_path(shot_id: int, extension: str = "mp3") -> str:
+    """某一镜头的配音存哪里。
+
+    音频扩展名取决于厂商（mock 出 wav、真实厂商常出 mp3），所以由调用方指定。
+    """
+    return f"audio/shots/{shot_id}.{extension.lstrip('.')}"
+
+
+_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "video/mp4",
+}
+
+
+def content_type_for(rel_path: str) -> str:
+    """按扩展名给出正确的 Content-Type。
+
+    别小看这一步：Content-Type 给错，浏览器播放器会直接拒绝播放
+    （音频/视频尤其敏感）。
+    """
+    suffix = Path(rel_path).suffix.lower()
+    return _MEDIA_TYPES.get(suffix, "application/octet-stream")
+
+
 def absolute_path(rel_path: str) -> Path:
     """把数据库里的相对路径还原成磁盘绝对路径。
 

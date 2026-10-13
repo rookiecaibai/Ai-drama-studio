@@ -22,10 +22,13 @@ from app.db.models import GenerationLog
 logger = logging.getLogger(__name__)
 
 # 给用户看的名称，让 429 的错误信息说人话
+# （漏了哪个 kind，用户就会看到"今日「调用」次数已达上限"这种含糊提示 ——
+#   这个遗漏正是被 test_audio_quota_is_separate 抓出来的）
 _KIND_LABEL = {
     "shots": "生成分镜",
     "synopsis": "生成大纲",
     "images": "生成画面",
+    "audio": "生成配音",
 }
 
 

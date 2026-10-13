@@ -105,6 +105,9 @@ class Shot(TimestampMixin, Base):
     image_path: Mapped[str | None] = mapped_column(String(255), default=None)
     # 生成失败时的原因，成功则为 None —— 单张图失败不该让整个任务报废
     image_error: Mapped[str | None] = mapped_column(Text, default=None)
+    # 配音同理：路径 + 失败原因（没有台词镜头会一直为空，前端显示"无需配音"）
+    audio_path: Mapped[str | None] = mapped_column(String(255), default=None)
+    audio_error: Mapped[str | None] = mapped_column(Text, default=None)
 
     episode: Mapped[Episode] = relationship(back_populates="shots")
 

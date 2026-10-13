@@ -11,12 +11,19 @@ from app.api.deps import (
     LlmProvider,
     QuotaServiceDep,
     SessionFactoryDep,
+    TtsProviderDep,
 )
 from app.core.errors import NotFoundError
 from app.db.models import Episode, GenerationTask, User
-from app.schemas.episode import EpisodeDetail, EpisodeUpdate, GenerateRequest, ImageGenerateRequest
+from app.schemas.episode import (
+    AudioGenerateRequest,
+    EpisodeDetail,
+    EpisodeUpdate,
+    GenerateRequest,
+    ImageGenerateRequest,
+)
 from app.schemas.task import GenerationTaskRead
-from app.services.task_service import run_generation_task, run_image_task
+from app.services.task_service import run_audio_task, run_generation_task, run_image_task
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
 
@@ -155,6 +162,60 @@ def create_image_task(
 
     background_tasks.add_task(
         run_image_task,
+        task_id=task.id,
+        log_id=log.id,
+        provider=provider,
+        session_factory=session_factory,
+        only_missing=payload.only_missing,
+    )
+    return task
+
+
+@router.post(
+    "/{episode_id}/audio",
+    response_model=GenerationTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="为这一集的台词批量生成配音（异步，用 GET /tasks/{id} 轮询进度）",
+)
+def create_audio_task(
+    episode_id: int,
+    payload: AudioGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    user: CurrentUser,
+    provider: TtsProviderDep,
+    quota: QuotaServiceDep,
+    session_factory: SessionFactoryDep,
+) -> GenerationTask:
+    """把每个镜头的台词变成语音。
+
+    只有**有台词**的镜头才会被配音：纯画面镜头没话可说，
+    给它生成音频既没意义又白花钱（total 里也不计入）。
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+
+    quota.ensure_allowed(db, user.id, kind="audio")
+    log = quota.record(
+        db,
+        user_id=user.id,
+        episode_id=episode.id,
+        provider=provider.name,
+        kind="audio",
+    )
+
+    task = GenerationTask(
+        user_id=user.id,
+        episode_id=episode.id,
+        kind="audio",
+        provider=provider.name,
+        shot_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    background_tasks.add_task(
+        run_audio_task,
         task_id=task.id,
         log_id=log.id,
         provider=provider,
