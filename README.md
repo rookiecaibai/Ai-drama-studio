@@ -1,9 +1,12 @@
 # AI Drama Studio
 
+[![CI](https://github.com/rookiecaibai/Created-by-Ai-ai-drama-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/rookiecaibai/Created-by-Ai-ai-drama-studio/actions/workflows/ci.yml)
+
 一个 AI 短剧创作的 Web Service：管理短剧 → 剧集 → 分镜，并调用大模型生成可拍摄的分镜脚本。
 
 > 这个项目的目标不只是"能跑"，而是**每一层都能讲清为什么这么设计**。
-> 架构决策的完整理由见 [docs/00-架构决策.md](docs/00-架构决策.md)。
+> 架构决策的完整理由见 [docs/00-架构决策.md](docs/00-架构决策.md)；
+> 零基础全景介绍见 [docs/04-项目全景介绍.md](docs/04-项目全景介绍.md)。
 
 ## 技术栈
 
@@ -208,6 +211,7 @@ frontend/                    # Vite + React + TS 前端
 - ✅ 前端：Vite + React + TS，登录/建剧/建集/生成/分镜表全流程，构建产物由 FastAPI 托管（实机验证）
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
 - ✅ MySQL 生产路径：本机 MySQL 9.6 实测通过 —— 4 条迁移执行成功、零差异，应用全链路冒烟 8 项通过（中文/emoji 往返正常）
+- ✅ 已推送 GitHub 并跑通 CI：后端 33 个测试 + 前端类型检查与构建，两个任务全绿
 - ⚠️ Docker / docker-compose / Nginx：配置已按生产要求修正（入口自动跑迁移、健康检查、密钥注入），
   **可验证部分已实测**，但整链路仍需装 Docker 后按 [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 走一遍
-- ⏳ 待做：推送到 GitHub（CI 实跑）、接真实大模型实测、Docker 整链路验证
+- ⏳ 待做：接真实大模型实测、Docker 整链路验证
