@@ -67,12 +67,18 @@ python -m pytest
 
 ## 接口一览
 
+> 除 `/health`、`/docs` 和注册登录外，所有接口都需要请求头
+> `Authorization: Bearer <token>`（token 由 `/auth/login` 返回）。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/v1/health` | 健康检查（含数据库连通性） |
+| GET | `/api/v1/health` | 健康检查（含数据库连通性，公开） |
+| POST | `/api/v1/auth/register` | 注册 |
+| POST | `/api/v1/auth/login` | 登录（表单），返回 JWT |
+| GET | `/api/v1/auth/me` | 当前登录用户 |
 | POST | `/api/v1/dramas` | 创建短剧 |
-| GET | `/api/v1/dramas?offset=0&limit=20` | 短剧列表（分页） |
-| GET | `/api/v1/dramas/{id}` | 短剧详情（含剧集） |
+| GET | `/api/v1/dramas?offset=0&limit=20` | 我的短剧列表（分页，只返回自己的） |
+| GET | `/api/v1/dramas/{id}` | 短剧详情（含剧集；别人的剧返回 404） |
 | PATCH | `/api/v1/dramas/{id}` | 局部更新 |
 | DELETE | `/api/v1/dramas/{id}` | 删除（级联删剧集和镜头） |
 | POST | `/api/v1/dramas/{id}/episodes` | 新增一集（集数自动递增） |
@@ -83,19 +89,33 @@ python -m pytest
 ### 试一遍完整流程
 
 ```bash
-# 1) 建剧
-curl -X POST http://127.0.0.1:8000/api/v1/dramas \
+# 1) 注册 + 登录拿 token
+curl -X POST http://127.0.0.1:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
+  -d '{"username":"demo","password":"pw12345678"}'
+
+curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d 'username=demo&password=pw12345678'
+# 把返回里的 access_token 存成 TOKEN
+
+# 2) 建剧
+curl -X POST http://127.0.0.1:8000/api/v1/dramas \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
   -d '{"title":"雨夜便利店","genre":"都市","logline":"雨夜的一次重逢"}'
 
-# 2) 加一集（假设剧 id=1）
+# 3) 加一集（假设剧 id=1）
 curl -X POST http://127.0.0.1:8000/api/v1/dramas/1/episodes \
-  -H "Content-Type: application/json" -d '{"title":"第1集"}'
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"title":"第1集"}'
 
-# 3) 生成分镜（假设剧集 id=1）
+# 4) 生成分镜（假设剧集 id=1）
 curl -X POST http://127.0.0.1:8000/api/v1/episodes/1/generate \
-  -H "Content-Type: application/json" -d '{"shot_count":6}'
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"shot_count":6}'
 ```
+
+> 更省事的方式：打开 PyCharm 里的 [api.http](backend/api.http)，按注释顺序点绿色三角即可。
 
 ## 目录结构
 
@@ -116,8 +136,9 @@ backend/
 
 ## 当前状态（诚实清单）
 
-- ✅ 后端接口 + 测试：**已在本机实测通过（11 passed）**
+- ✅ 后端接口 + 测试：**已在本机实测通过（24 passed）**
+- ✅ JWT 鉴权 + 资源归属：注册/登录/me + 用户只能操作自己的短剧，**已实机验证**
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
 - ⚠️ Docker / docker-compose / Nginx 配置：已编写，但开发机未装 Docker，**尚未实机验证**
 - ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，未验证
-- ⏳ 待做：Alembic 迁移、JWT 登录、前端页面、大模型直连实测、CI 实跑
+- ⏳ 待做：Alembic 迁移、调用配额/限流、生成任务异步化、前端页面、大模型直连实测、CI 实跑

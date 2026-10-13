@@ -23,10 +23,31 @@ class TimestampMixin:
     )
 
 
+class User(TimestampMixin, Base):
+    """用户账号。"""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(120), default=None)
+    # 只存 bcrypt 哈希，绝不存明文密码（见 core/security.py 的解释）
+    password_hash: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+    dramas: Mapped[list["Drama"]] = relationship(
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        order_by="Drama.id",
+    )
+
+
 class Drama(TimestampMixin, Base):
     __tablename__ = "dramas"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 归属：每个用户只能看到和操作自己的短剧
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     genre: Mapped[str] = mapped_column(String(40), default="都市", nullable=False)
     logline: Mapped[str | None] = mapped_column(String(500))  # 一句话梗概，可为空
@@ -37,6 +58,7 @@ class Drama(TimestampMixin, Base):
     # 这里刻意用默认的懒加载（lazy="select"），需要关联数据的地方用 selectinload 显式声明。
     # 为什么不用 lazy="selectin" 一劳永逸？因为列表接口根本不需要 episodes，
     # 设成 selectin 会让每次翻页都多查一次表 —— 隐式行为比显式加载更容易埋性能坑。
+    owner: Mapped[User] = relationship(back_populates="dramas")
     episodes: Mapped[list["Episode"]] = relationship(
         back_populates="drama",
         cascade="all, delete-orphan",

@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # 生产环境应设为 false，改用 Alembic 迁移管理表结构（见 docs/00）
     auto_create_tables: bool = True
 
+    # ---------- 安全 / 鉴权 ----------
+    # 生产环境必须通过环境变量覆盖！这个默认值只用于本地开发。
+    # 生成真密钥：python -c "import secrets; print(secrets.token_hex(32))"
+    jwt_secret_key: str = "dev-only-secret-change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24  # 默认 24 小时
+
     # ---------- 大模型 ----------
     # mock: 本地假数据，无需 API Key 即可跑通全流程
     # openai_compat: 任何 OpenAI 兼容接口（DeepSeek / 通义 / Kimi / OpenAI ...）

@@ -32,5 +32,15 @@ cryptography>=42.0.0
 python-dotenv==1.2.4
 httpx==0.28.1
 
+# Auth: PyJWT signs/verifies tokens, bcrypt hashes passwords (slow hash on purpose)
+PyJWT==2.15.1
+bcrypt==5.0.0
+# Form parsing for the OAuth2 login endpoint (username/password form data)
+python-multipart==0.0.32
+
+# DB migrations (Alembic) + YAML parsing used by deploy tooling checks
+alembic==1.20.0
+PyYAML==6.0.3
+
 # Tests
 pytest==9.1.1

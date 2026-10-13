@@ -58,3 +58,29 @@ def test_episode_number_auto_increment_and_duplicate(client):
 
     lst = client.get(f"/api/v1/dramas/{drama['id']}/episodes")
     assert [e["number"] for e in lst.json()] == [1, 2]
+
+
+def test_cross_user_isolation(client, login_as):
+    """核心安全用例：用户 B 不能看到、修改或删除用户 A 的资源。"""
+    drama = _create_drama(client)  # alice 的剧
+
+    bob_token = login_as("bob")
+    client.headers["Authorization"] = f"Bearer {bob_token}"
+
+    # B 看 A 的剧：404（不是 403 —— 403 会泄露"这个 id 存在"）
+    assert client.get(f"/api/v1/dramas/{drama['id']}").status_code == 404
+    # B 改 A 的剧：404
+    assert client.patch(f"/api/v1/dramas/{drama['id']}", json={"title": "偷改"}).status_code == 404
+    # B 删 A 的剧：404，且剧依然存在
+    assert client.delete(f"/api/v1/dramas/{drama['id']}").status_code == 404
+    # B 给 A 的剧加集：404
+    assert client.post(f"/api/v1/dramas/{drama['id']}/episodes", json={"title": "偷加"}).status_code == 404
+    # B 的列表里看不到 A 的剧
+    ids = [d["id"] for d in client.get("/api/v1/dramas").json()]
+    assert drama["id"] not in ids
+
+    # 切回原来的 alice（只是重新登录，不是注册新用户），她的剧还在
+    resp = client.post("/api/v1/auth/login", data={"username": "alice", "password": "pw12345678"})
+    client.headers["Authorization"] = f"Bearer {resp.json()['access_token']}"
+    assert client.get(f"/api/v1/dramas/{drama['id']}").status_code == 200
+

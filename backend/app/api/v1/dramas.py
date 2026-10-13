@@ -1,59 +1,69 @@
-"""短剧与剧集相关接口。"""
+"""短剧与剧集相关接口（都需要登录，且只能操作自己的资源）。"""
 
 from fastapi import APIRouter, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import DbSession
+from app.api.deps import CurrentUser, DbSession
 from app.core.errors import ConflictError, NotFoundError
-from app.db.models import Drama, Episode
+from app.db.models import Drama, Episode, User
 from app.schemas.drama import DramaCreate, DramaDetail, DramaRead, DramaUpdate
 from app.schemas.episode import EpisodeCreate, EpisodeRead
 
 router = APIRouter(prefix="/dramas", tags=["dramas"])
 
 
-def _get_drama_or_404(db: DbSession, drama_id: int) -> Drama:
-    """把"取不到就 404"这种重复逻辑收成一个函数。"""
+def _get_owned_drama(db: DbSession, drama_id: int, user: User) -> Drama:
+    """取"属于当前用户"的短剧。
+
+    注意一个安全细节：资源不存在和资源不属于你，返回的是同一个 404。
+    如果属于别人时返回 403，外人就能靠"404/403 的区别"探测出哪些 id 真实存在。
+    """
     drama = db.get(Drama, drama_id)
-    if drama is None:
+    if drama is None or drama.owner_id != user.id:
         raise NotFoundError(f"短剧 {drama_id} 不存在")
     return drama
 
 
 @router.post("", response_model=DramaRead, status_code=status.HTTP_201_CREATED, summary="创建短剧")
-def create_drama(payload: DramaCreate, db: DbSession) -> Drama:
-    drama = Drama(**payload.model_dump())
+def create_drama(payload: DramaCreate, db: DbSession, user: CurrentUser) -> Drama:
+    drama = Drama(**payload.model_dump(), owner_id=user.id)
     db.add(drama)
     db.commit()
     db.refresh(drama)  # 拿到数据库生成的 id / 时间戳
     return drama
 
 
-@router.get("", response_model=list[DramaRead], summary="短剧列表")
+@router.get("", response_model=list[DramaRead], summary="我的短剧列表")
 def list_dramas(
     db: DbSession,
+    user: CurrentUser,
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ) -> list[Drama]:
+    # 只返回当前用户的剧 —— 这就是"资源归属"在列表层的体现
     # 分页是硬要求：不加 limit 的列表接口，数据一多就是线上事故（内存打爆 + 慢查询）
-    stmt = select(Drama).order_by(Drama.id.desc()).offset(offset).limit(limit)
+    stmt = (
+        select(Drama)
+        .where(Drama.owner_id == user.id)
+        .order_by(Drama.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return list(db.scalars(stmt))
 
 
 @router.get("/{drama_id}", response_model=DramaDetail, summary="短剧详情（含剧集列表）")
-def get_drama(drama_id: int, db: DbSession) -> Drama:
+def get_drama(drama_id: int, db: DbSession, user: CurrentUser) -> Drama:
+    _get_owned_drama(db, drama_id, user)  # 归属校验
     # selectinload：用一条额外的 IN 查询把剧集一起取回来，避免"N+1 查询"
     stmt = select(Drama).options(selectinload(Drama.episodes)).where(Drama.id == drama_id)
-    drama = db.scalars(stmt).first()
-    if drama is None:
-        raise NotFoundError(f"短剧 {drama_id} 不存在")
-    return drama
+    return db.scalars(stmt).first()  # 上面校验过存在性，这里必然有值
 
 
 @router.patch("/{drama_id}", response_model=DramaRead, summary="局部更新短剧")
-def update_drama(drama_id: int, payload: DramaUpdate, db: DbSession) -> Drama:
-    drama = _get_drama_or_404(db, drama_id)
+def update_drama(drama_id: int, payload: DramaUpdate, db: DbSession, user: CurrentUser) -> Drama:
+    drama = _get_owned_drama(db, drama_id, user)
     # exclude_unset：只更新请求里真正出现过的字段（PATCH 语义）
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(drama, field, value)
@@ -63,8 +73,8 @@ def update_drama(drama_id: int, payload: DramaUpdate, db: DbSession) -> Drama:
 
 
 @router.delete("/{drama_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除短剧")
-def delete_drama(drama_id: int, db: DbSession) -> None:
-    drama = _get_drama_or_404(db, drama_id)
+def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
+    drama = _get_owned_drama(db, drama_id, user)
     db.delete(drama)  # cascade 会连带删掉剧集和镜头
     db.commit()
 
@@ -78,8 +88,8 @@ def delete_drama(drama_id: int, db: DbSession) -> None:
     status_code=status.HTTP_201_CREATED,
     summary="新增一集",
 )
-def create_episode(drama_id: int, payload: EpisodeCreate, db: DbSession) -> Episode:
-    drama = _get_drama_or_404(db, drama_id)
+def create_episode(drama_id: int, payload: EpisodeCreate, db: DbSession, user: CurrentUser) -> Episode:
+    drama = _get_owned_drama(db, drama_id, user)
 
     if payload.number is None:
         max_number = db.scalar(select(func.max(Episode.number)).where(Episode.drama_id == drama.id))
@@ -106,7 +116,7 @@ def create_episode(drama_id: int, payload: EpisodeCreate, db: DbSession) -> Epis
 
 
 @router.get("/{drama_id}/episodes", response_model=list[EpisodeRead], summary="某部短剧的剧集列表")
-def list_episodes(drama_id: int, db: DbSession) -> list[Episode]:
-    _get_drama_or_404(db, drama_id)
+def list_episodes(drama_id: int, db: DbSession, user: CurrentUser) -> list[Episode]:
+    _get_owned_drama(db, drama_id, user)
     stmt = select(Episode).where(Episode.drama_id == drama_id).order_by(Episode.number)
     return list(db.scalars(stmt))

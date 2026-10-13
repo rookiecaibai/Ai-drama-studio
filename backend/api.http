@@ -6,15 +6,40 @@
 ### 3) 纯文本，能 review、能 diff，比 Postman 导出的 JSON 友好得多。
 ###
 ### 使用前提：先启动服务（右键 run.py -> Run 或 Debug）。
+### 使用顺序（鉴权加入后）：
+###   ① 注册（0 号请求）→ ② 登录（1 号请求，登录响应会把 token 自动存进变量）
+###   → ③ 从 2 号开始点。token 失效了就重新登录。
 
 @host = http://127.0.0.1:8000
 @api = {{host}}/api/v1
 
-### 1. 健康检查（含数据库连通性）
+### 0. 注册新用户（用户名被占用会返回 409，那是正常的）
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "demo",
+  "password": "pw12345678"
+}
+
+### 1. 登录 —— 成功后自动把 token 存进全局变量 auth_token
+POST {{api}}/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=demo&password=pw12345678
+
+> {% client.global.set("auth_token", response.body.access_token); %}
+
+### 1.5 查看当前登录用户
+GET {{api}}/auth/me
+Authorization: Bearer {{auth_token}}
+
+### 2. 健康检查（含数据库连通性，无需登录）
 GET {{api}}/health
 
-### 2. 创建短剧
+### 3. 创建短剧（需登录）
 POST {{api}}/dramas
+Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 
 {
@@ -24,33 +49,39 @@ Content-Type: application/json
   "style": "冷色调、手持镜头、霓虹反光"
 }
 
-### 3. 短剧列表（分页）
+### 4. 我的短剧列表（分页）
 GET {{api}}/dramas?offset=0&limit=20
+Authorization: Bearer {{auth_token}}
 
-### 4. 短剧详情（含剧集列表）
+### 5. 短剧详情（含剧集列表）
 GET {{api}}/dramas/1
+Authorization: Bearer {{auth_token}}
 
-### 5. 局部更新（只改标题，genre 应保持不变）
+### 6. 局部更新（只改标题，genre 应保持不变）
 PATCH {{api}}/dramas/1
+Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 
 {
   "title": "雨夜便利店 II"
 }
 
-### 6. 新增一集（不传 number 会从 1 开始自动递增）
+### 7. 新增一集（不传 number 会从 1 开始自动递增）
 POST {{api}}/dramas/1/episodes
+Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 
 {
   "title": "第1集"
 }
 
-### 7. 剧集列表
+### 8. 剧集列表
 GET {{api}}/dramas/1/episodes
+Authorization: Bearer {{auth_token}}
 
-### 8. AI 生成本集剧本与分镜（幂等：重复执行不会让镜头翻倍）
+### 9. AI 生成本集剧本与分镜（幂等：重复执行不会让镜头翻倍）
 POST {{api}}/episodes/1/generate
+Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 
 {
@@ -58,14 +89,20 @@ Content-Type: application/json
   "extra_hint": "结尾留一个反转钩子"
 }
 
-### 9. 剧集详情（含全部镜头）
+### 10. 剧集详情（含全部镜头）
 GET {{api}}/episodes/1
+Authorization: Bearer {{auth_token}}
 
-### 10. 错误路径验证：不存在的短剧应返回统一错误结构
+### 11. 错误路径：不存在的短剧应返回统一错误结构
 GET {{api}}/dramas/999999
+Authorization: Bearer {{auth_token}}
 
-### 11. 参数校验验证：空标题应返回 422
+### 12. 未登录访问应返回 401（演示：把上一行请求里的 Authorization 删掉再发）
+GET {{api}}/dramas
+
+### 13. 参数校验：空标题应返回 422
 POST {{api}}/dramas
+Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 
 {
