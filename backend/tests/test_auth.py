@@ -87,3 +87,27 @@ def test_protected_endpoints_require_login(anon_client):
     assert anon_client.post("/api/v1/dramas", json={"title": "x"}).status_code == 401
     assert anon_client.get("/api/v1/dramas/1").status_code == 401
     assert anon_client.post("/api/v1/episodes/1/generate", json={}).status_code == 401
+
+
+def test_login_rate_limit_blocks_brute_force(anon_client):
+    """连续错 3 次后，第 4 次（即使密码正确）也要被 429 拦下。
+
+    这里通过依赖覆盖把限流窗口调成"最多 3 次"，否则测试要等 10 分钟。
+    """
+    from app.api.deps import get_login_limiter
+    from app.core.ratelimit import LoginLimiter
+
+    # 注意：必须复用同一个实例。如果写成 lambda: LoginLimiter(...)，
+    # 每个请求都会拿到全新实例，失败计数永远攒不起来（这个坑在实现里也踩过）。
+    limiter = LoginLimiter(max_attempts=3, window_sec=60)
+    anon_client.app.dependency_overrides[get_login_limiter] = lambda: limiter
+    _register(anon_client)
+
+    for i in range(3):
+        resp = anon_client.post("/api/v1/auth/login", data={"username": "bob", "password": "wrong-pass-1"})
+        assert resp.status_code == 401, f"第 {i+1} 次失败登录应返回 401"
+
+    # 第 4 次：已经被限流 —— 连"正确的密码"都进不来（这是限流的代价，也是设计取舍）
+    resp = anon_client.post("/api/v1/auth/login", data={"username": "bob", "password": "pw12345678"})
+    assert resp.status_code == 429
+    assert resp.json()["error"]["code"] == "too_many_attempts"

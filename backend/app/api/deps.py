@@ -6,6 +6,7 @@
    这就是为什么上面的测试能在不碰真实数据库的情况下跑。
 """
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
@@ -14,11 +15,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.ratelimit import LoginLimiter
 from app.core.security import decode_access_token
 from app.db.models import User
 from app.db.session import get_db
 from app.services.llm.base import LLMProvider
 from app.services.llm.factory import build_provider
+from app.services.quota import QuotaService
 
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -35,6 +38,29 @@ def get_llm_provider() -> LLMProvider:
 
 
 LlmProvider = Annotated[LLMProvider, Depends(get_llm_provider)]
+
+
+def get_quota_service() -> QuotaService:
+    """按配置构造配额服务。写成依赖是为了测试时能换成"上限=2"的实例。"""
+    return QuotaService(daily_limit=get_settings().daily_generation_limit)
+
+
+QuotaServiceDep = Annotated[QuotaService, Depends(get_quota_service)]
+
+
+@lru_cache(maxsize=1)
+def get_login_limiter() -> LoginLimiter:
+    """登录防爆破限流器。
+
+    必须是进程级单例（lru_cache）：限流器的失败计数存在内存里，
+    如果每个请求新建一个实例，计数永远攒不起来，限流就形同虚设 ——
+    这个 bug 正是被测试 test_login_rate_limit_blocks_brute_force 抓出来的。
+    """
+    settings = get_settings()
+    return LoginLimiter(max_attempts=settings.login_max_attempts, window_sec=settings.login_window_sec)
+
+
+LoginLimiterDep = Annotated[LoginLimiter, Depends(get_login_limiter)]
 
 
 def get_current_user(

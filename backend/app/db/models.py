@@ -103,3 +103,20 @@ class Shot(TimestampMixin, Base):
     audio_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 给配音(TTS)的提示词：语气/语速/情绪
 
     episode: Mapped[Episode] = relationship(back_populates="shots")
+
+
+class GenerationLog(TimestampMixin, Base):
+    """每次 AI 生成调用记一条流水：配额统计和成本审计都靠它。
+
+    为什么 AI 应用必须记调用流水：
+    传统应用的"刷接口"最多浪费你一点 CPU；AI 应用的每次调用都是真金白银。
+    没有流水，月底看到账单时根本说不清钱花在哪、谁花的。
+    """
+
+    __tablename__ = "generation_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    episode_id: Mapped[int] = mapped_column(ForeignKey("episodes.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(40), default="", nullable=False)  # 用了哪家模型
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending/success/failed

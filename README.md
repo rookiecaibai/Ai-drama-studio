@@ -156,10 +156,11 @@ backend/
 
 ## 当前状态（诚实清单）
 
-- ✅ 后端接口 + 测试：**已在本机实测通过（27 passed）**
+- ✅ 后端接口 + 测试：**已在本机实测通过（31 passed）**
 - ✅ JWT 鉴权 + 资源归属：注册/登录/me + 用户只能操作自己的短剧，**已实机验证**
-- ✅ Alembic 迁移：基线 + audio_prompt 变更迁移，`alembic check` 零差异，有集成测试守护
+- ✅ Alembic 迁移：基线 + audio_prompt + generation_logs 三条迁移，`alembic check` 零差异，有集成测试守护
+- ✅ 调用配额/限流：每日生成配额（含调用流水审计）+ 登录防爆破限流（内存版，生产需换 Redis）
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
 - ⚠️ Docker / docker-compose / Nginx 配置：已编写，但开发机未装 Docker，**尚未实机验证**
 - ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，未验证
-- ⏳ 待做：调用配额/限流、生成任务异步化、前端页面、大模型直连实测、CI 实跑
+- ⏳ 待做：生成任务异步化、前端页面、大模型直连实测、CI 实跑

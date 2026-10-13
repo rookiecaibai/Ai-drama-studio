@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24  # 默认 24 小时
 
+    # ---------- 配额 / 限流 ----------
+    # 每用户每天最多生成次数。AI 调用是钱，必须设上限（<=0 表示不限制）
+    daily_generation_limit: int = 20
+    # 登录失败限流：窗口期内最多失败次数（防密码爆破）
+    login_max_attempts: int = 10
+    login_window_sec: int = 600
+
     # ---------- 大模型 ----------
     # mock: 本地假数据，无需 API Key 即可跑通全流程
     # openai_compat: 任何 OpenAI 兼容接口（DeepSeek / 通义 / Kimi / OpenAI ...）
