@@ -227,7 +227,7 @@ Password 填你的密码 → Test Connection。
 
 | 症状 | 原因 | 解决 |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'app'` | 没标 Sources Root | 回到第 3 步 |
+| `ModuleNotFoundError: No module named 'app'` | ① 没标 Sources Root ② **或者你直接运行了 `app/` 里的文件** | 见下方「为什么会报 No module named 'app'」 |
 | `ModuleNotFoundError: No module named 'fastapi'` | 解释器选错了（用的是全局 Python） | 回到第 2 步，确认右下角是 `.venv` |
 | `import` 是红色波浪线但能跑 | IDE 没标 Sources Root，或没装依赖 | 同上，两边都要配 |
 | 改了 `.env` 不生效 | 工作目录不对，或配置是单例缓存 | 检查 Working directory；重启进程（`get_settings` 有 lru_cache） |
@@ -254,6 +254,56 @@ UnicodeDecodeError: 'gbk' codec can't decode byte 0x80 in position 34
 所以"配置文件尽量保持 ASCII"是个值得养成的习惯。
 **这类问题不是你英语不好造成的，而是"跨环境编码假设"造成的** ——
 能讲清这一点，比背十道八股更有说服力。
+
+---
+
+## 9.1 为什么会报 `No module named 'app'`（两种原因，别混）
+
+```
+File "...\backend\app\main.py", line 16, in <module>
+    from app.api.v1 import api_router
+ModuleNotFoundError: No module named 'app'
+```
+
+### 原因一：没把 `backend` 标成源码根
+
+`from app.core.config import ...` 里的 `app`，实际位置是 `backend\app`。
+要让 Python 找到它，`backend` 必须出现在 `sys.path` 里。
+PyCharm 靠"Sources Root"标记把 `backend` 加进 `sys.path`。
+
+**解决**：右键 `backend` 文件夹 → `Mark Directory as` → `Sources Root`（文件夹变蓝）。
+
+### 原因二：直接运行了 `app/` 里面的文件
+
+**这一条更隐蔽，而且和 IDE 配置无关，是 Python 本身的规则。**
+
+Python 启动一个脚本时，会把**这个脚本自己所在的目录**放到 `sys.path[0]`。
+
+| 你运行的文件 | Python 加入的目录 | `import app` 能找到吗 |
+|---|---|---|
+| `backend\run.py` | `backend\` | ✅ 能找到 `backend\app` |
+| `backend\app\main.py` | `backend\app\` | ❌ 这里没有名为 `app` 的包 |
+
+所以**直接点 `main.py` 上的绿色三角运行，一定会报这个错** —— 哪怕 Sources Root 标对了也可能踩到。
+
+**解决**：运行 `backend\run.py`（我已经为这个目的写好了它），
+或者用终端 `cd backend` 后执行 `python -m uvicorn app.main:app`。
+
+### 一条可以背下来的规则
+
+> **永远站在 `backend\` 这一层启动服务，不要直接运行 `app\` 文件夹里的任何文件。**
+
+`app` 是一个**包（package）**，包必须"从它的上一层"被导入。
+`run.py` 之所以放在 `backend\` 而不是 `app\` 里，就是为了保证这一点成立。
+
+### 顺带说一下"更彻底"的做法
+
+真实项目里还有第三种解法：把这个项目做成一个**可安装的包**
+（写 `pyproject.toml`，然后 `pip install -e .`），
+装完之后 `import app` 在**任何目录**下都能用，就再也不会有这个问题了。
+
+本项目暂时没这么做，是为了少引入一个概念；
+但你知道有这么条路 —— 将来项目变大、要在别处复用这些模块时会用到。
 
 ---
 
