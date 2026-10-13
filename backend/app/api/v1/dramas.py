@@ -92,6 +92,13 @@ def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
         .join(Episode, Shot.episode_id == Episode.id)
         .where(Episode.drama_id == drama.id)
     ).all()
+    video_paths = list(
+        db.scalars(
+            select(Episode.video_path).where(
+                Episode.drama_id == drama.id, Episode.video_path.is_not(None)
+            )
+        )
+    )
 
     db.delete(drama)  # cascade 会连带删掉剧集和镜头
     db.commit()
@@ -99,6 +106,8 @@ def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
     for image_path, audio_path in media_rows:
         media.delete(image_path)
         media.delete(audio_path)
+    for video_path in video_paths:
+        media.delete(video_path)
 
 
 # ---------------- 剧集（挂在短剧下面） ----------------

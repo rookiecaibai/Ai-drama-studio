@@ -42,6 +42,24 @@ def shot_audio_rel_path(shot_id: int, extension: str = "mp3") -> str:
     return f"audio/shots/{shot_id}.{extension.lstrip('.')}"
 
 
+def episode_video_rel_path(episode_id: int) -> str:
+    """某一集的成片存哪里（一集一个文件，重新合成直接覆盖）。"""
+    return f"videos/episodes/{episode_id}.mp4"
+
+
+def build_work_dir(name: str) -> Path:
+    """给需要中间文件的活儿（比如视频合成的分镜片段）准备一个临时目录。
+
+    刻意放在 media 目录下而不是系统临时目录：
+    1. media 是我们确定可写、且在 .gitignore 里的位置；
+    2. 某些受限环境下 Python 的 tempfile 拿不到可写的系统临时目录；
+    3. 放在一起便于排查（虽然正常情况下用完就删）。
+    """
+    work_dir = media_root() / "_work" / name
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir
+
+
 _MEDIA_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",

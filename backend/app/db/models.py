@@ -77,6 +77,9 @@ class Episode(TimestampMixin, Base):
     title: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     synopsis: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+    # 合成好的成片：路径 + 失败原因（一集一个视频）
+    video_path: Mapped[str | None] = mapped_column(String(255), default=None)
+    video_error: Mapped[str | None] = mapped_column(Text, default=None)
 
     drama: Mapped[Drama] = relationship(back_populates="episodes")
     shots: Mapped[list["Shot"]] = relationship(

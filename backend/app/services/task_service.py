@@ -18,15 +18,17 @@ BackgroundTasks 只是"进程内"的后台任务 —— 服务重启，没跑完
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Episode, GenerationLog, GenerationTask
+from app.db.models import Episode, GenerationLog, GenerationTask, Shot
 from app.services.image_service import generate_images_for_episode
 from app.services.images.base import ImageProvider
 from app.services.llm.base import LLMProvider
 from app.services.script_service import generate_episode_script
 from app.services.tts.base import TtsProvider
 from app.services.tts_service import generate_audio_for_episode
+from app.services.video_service import compose_episode_video
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +216,66 @@ async def run_audio_task(
         task.finished_at = _now()
         db.commit()
         logger.info("任务 %s 结束：计划 %s 段，成功 %s 段", task_id, planned, succeeded)
+
+
+def run_video_task(
+    *,
+    task_id: int,
+    log_id: int,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """后台把一集的镜头合成成片。
+
+    注意这是**同步函数**（不是 async）：
+    ffmpeg 是外部进程 + 阻塞等待，写成 async 会卡住事件循环，把整个服务拖死。
+    写成同步函数后，Starlette 会自动把它丢到线程池里跑 —— 这是正确的做法。
+    （图片/配音任务之所以是 async，是因为它们在等网络 IO。）
+    """
+    with session_factory() as db:
+        task = db.get(GenerationTask, task_id)
+        if task is None:
+            logger.warning("任务 %s 不存在，跳过", task_id)
+            return
+
+        task.status = "running"
+        task.started_at = _now()
+        db.commit()
+        logger.info("任务 %s 开始合成视频", task_id)
+
+        def _on_total(total: int) -> None:
+            task.total = total
+            db.commit()
+
+        def _on_progress() -> None:
+            task.done += 1
+            db.commit()
+
+        episode = db.get(Episode, task.episode_id)
+        try:
+            shots = list(
+                db.scalars(select(Shot).where(Shot.episode_id == episode.id).order_by(Shot.number))
+            )
+            rel_path = compose_episode_video(
+                episode=episode,
+                shots=shots,
+                on_total=_on_total,
+                on_progress=_on_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if episode is not None:
+                episode.video_error = str(exc)[:500]
+            task.status = "failed"
+            task.error = str(exc)[:500]
+            task.finished_at = _now()
+            db.commit()
+            _finish_log(db, log_id, "failed")
+            logger.exception("任务 %s 失败", task_id)
+            return
+
+        episode.video_path = rel_path
+        episode.video_error = None
+        task.status = "succeeded"
+        task.finished_at = _now()
+        db.commit()
+        _finish_log(db, log_id, "success")
+        logger.info("任务 %s 合成完成: %s", task_id, rel_path)

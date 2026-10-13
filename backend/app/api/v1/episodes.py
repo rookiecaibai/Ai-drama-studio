@@ -1,6 +1,7 @@
 """剧集与 AI 生成任务相关接口（需登录，且只能操作自己的剧集）。"""
 
 from fastapi import APIRouter, BackgroundTasks, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -23,7 +24,13 @@ from app.schemas.episode import (
     ImageGenerateRequest,
 )
 from app.schemas.task import GenerationTaskRead
-from app.services.task_service import run_audio_task, run_generation_task, run_image_task
+from app.services import media
+from app.services.task_service import (
+    run_audio_task,
+    run_generation_task,
+    run_image_task,
+    run_video_task,
+)
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
 
@@ -223,3 +230,73 @@ def create_audio_task(
         only_missing=payload.only_missing,
     )
     return task
+
+
+@router.post(
+    "/{episode_id}/video",
+    response_model=GenerationTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="把这一集合成成竖屏 MP4（异步，用 GET /tasks/{id} 轮询进度）",
+)
+def create_video_task(
+    episode_id: int,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    user: CurrentUser,
+    quota: QuotaServiceDep,
+    session_factory: SessionFactoryDep,
+) -> GenerationTask:
+    """本地 ffmpeg 合成，不需要任何外部服务。
+
+    也走配额（kind=video）：这里限的不是钱，而是**服务器 CPU** ——
+    视频编码是重活，不限制的话几个请求就能把机器压满，把别人的接口一起拖慢。
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+
+    quota.ensure_allowed(db, user.id, kind="video")
+    log = quota.record(
+        db,
+        user_id=user.id,
+        episode_id=episode.id,
+        provider="ffmpeg",
+        kind="video",
+    )
+
+    task = GenerationTask(
+        user_id=user.id,
+        episode_id=episode.id,
+        kind="video",
+        provider="ffmpeg",
+        shot_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    background_tasks.add_task(
+        run_video_task,
+        task_id=task.id,
+        log_id=log.id,
+        session_factory=session_factory,
+    )
+    return task
+
+
+@router.get("/{episode_id}/video", summary="播放/下载这一集的成片（需登录，只能看自己的）")
+def get_episode_video(episode_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+    """和图片/音频同理：成片也是私有内容，必须走鉴权接口。
+
+    `Accept-Ranges: none` 是刻意加的：我们不实现 HTTP Range（分段下载），
+    而浏览器看到 Content-Length 会以为支持续传。明确声明不支持，播放器行为更可预期。
+    （编码时加了 -movflags +faststart，元数据在文件开头，所以不需要 Range 也能边下边播。）
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+
+    if not episode.video_path or not media.exists(episode.video_path):
+        raise NotFoundError("这一集还没有合成视频")
+
+    return FileResponse(
+        media.absolute_path(episode.video_path),
+        media_type="video/mp4",
+        headers={"Cache-Control": "no-cache", "Accept-Ranges": "none"},
+    )

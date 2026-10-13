@@ -29,6 +29,7 @@ _KIND_LABEL = {
     "synopsis": "生成大纲",
     "images": "生成画面",
     "audio": "生成配音",
+    "video": "合成视频",
 }
 
 

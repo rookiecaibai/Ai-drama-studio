@@ -97,6 +97,17 @@ class Settings(BaseSettings):
     # 每用户每天最多生成多少段配音
     daily_audio_limit: int = 60
 
+    # ---------- 视频合成 ----------
+    # 留空 = 自动查找：先看系统 PATH，再回退到 imageio-ffmpeg 自带的内置二进制
+    # （所以开发机不需要手工安装 ffmpeg；生产 Docker 里可以 apt 装一个并在这里指定）
+    ffmpeg_path: str = ""
+    video_width: int = 720
+    video_height: int = 1280  # 竖屏 9:16 —— 短剧就该是竖着的
+    video_fps: int = 25
+    video_crf: int = 26  # 越小越清晰、文件越大；26 对草稿预览够用
+    video_preset: str = "veryfast"
+    daily_video_limit: int = 10
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -32,6 +32,9 @@ class EpisodeRead(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    # 成片：video_path 不为空表示已经合成过（通过 GET /episodes/{id}/video 播放）
+    video_path: str | None = None
+    video_error: str | None = None
 
 
 class EpisodeDetail(EpisodeRead):
