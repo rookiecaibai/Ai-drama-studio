@@ -1,4 +1,4 @@
-# CI：每次 push / PR 自动跑测试。
+# CI：每次 push / PR 自动验证。
 # 为什么这件事对应届生特别重要：
 # 面试官打开你的 GitHub，看到一个带绿色 CI 徽章、有测试的项目，
 # 和看到一个只有 main 分支一堆 "update" 提交的项目，印象完全不同。
@@ -12,7 +12,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,3 +33,24 @@ jobs:
       - name: 跑测试
         # 测试用 MockProvider + 临时 SQLite，所以不需要任何密钥和外部服务
         run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查 + 构建
+        run: npm run build

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import api_router
@@ -95,8 +96,33 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(api_router, prefix=settings.api_prefix)
     _register_docs_routes(app, settings.app_name)
+    _register_frontend(app)
 
     return app
+
+
+def _register_frontend(app: FastAPI) -> None:
+    """托管前端构建产物（frontend/dist）。
+
+    为什么"后端托管前端产物"这个模式很实用：
+    - 部署只需要跑一个服务，浏览器同源访问，天然没有跨域(CORS)问题；
+    - 小项目/小团队不需要单独的前端服务器和域名。
+    前端代码在 frontend/ 目录，`npm run build` 后产物落在 frontend/dist；
+    这个函数只在该目录存在时才挂载 —— 没构建过前端时后端照常工作。
+    """
+    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    assets = dist / "assets"
+    if not assets.is_dir():
+        logger.info("未发现 frontend/dist，跳过前端托管（不影响 API 使用）")
+        return
+
+    app.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+
+    @app.get("/", include_in_schema=False)
+    def _index() -> FileResponse:
+        return FileResponse(dist / "index.html")
+
+    logger.info("已托管前端产物: %s", dist)
 
 
 app = create_app()

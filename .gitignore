@@ -19,6 +19,11 @@ venv/
 pytest-of-*/
 .pytest_tmp/
 
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/*.local
+
 # 编辑器 / 系统
 .idea/
 .vscode/

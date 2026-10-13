@@ -139,6 +139,24 @@ cd backend
 .venv\Scripts\python.exe -m alembic downgrade -1
 ```
 
+## 前端（Vite + React + TypeScript）
+
+前端代码在 `frontend/`，构建产物由 FastAPI 直接托管（同源部署，没有跨域问题）。
+
+```bash
+cd frontend
+
+# 开发模式：热更新 + 自动把 /api 代理到后端 8000
+npm install --registry=https://registry.npmmirror.com
+npm run dev          # 打开 http://localhost:5173
+
+# 生产构建：产物落到 frontend/dist，后端启动后由它托管
+npm run build
+```
+
+构建完重新启动后端，打开 <http://127.0.0.1:8000> 就是完整界面：
+注册/登录 → 建短剧 → 加集 → **AI 生成分镜（202 + 轮询进度）** → 查看分镜表。
+
 ## 目录结构
 
 ```
@@ -151,9 +169,14 @@ backend/
 │   ├── api/                 # 路由层（薄）+ 依赖注入
 │   └── services/            # 业务逻辑 + 大模型 Provider 抽象
 ├── tests/                   # pytest（用假模型 + 临时库，不联网）
+├── alembic/                 # 数据库迁移脚本（versions/ 是版本历史）
 ├── Dockerfile
 ├── docker-compose.yml
 └── nginx/nginx.conf
+
+frontend/                    # Vite + React + TS 前端
+├── src/                     # api 客户端、登录页、工作区、类型定义
+└── dist/                    # 构建产物（gitignore，由 FastAPI 托管）
 ```
 
 ## 当前状态（诚实清单）
@@ -163,8 +186,9 @@ backend/
 - ✅ Alembic 迁移：4 条迁移链，`alembic check` 零差异，有集成测试守护
 - ✅ 调用配额/限流：每日生成配额（含调用流水审计）+ 登录防爆破限流（内存版，生产需换 Redis）
 - ✅ 生成任务异步化：202 + 任务状态轮询，实机验证接口 48ms 返回、后台执行、失败落库
+- ✅ 前端：Vite + React + TS，登录/建剧/建集/生成/分镜表全流程，构建产物由 FastAPI 托管（实机验证）
 - ✅ Mock 模型全流程：无需 API Key 即可跑通
 - ⚠️ Docker / docker-compose / Nginx：配置已按生产要求修正（入口自动跑迁移、健康检查、密钥注入），
   **可验证部分已实测**，但整链路仍需装 Docker 后按 [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 走一遍
 - ⚠️ MySQL 生产路径：本机 MySQL 服务在跑，但缺少凭据，迁移未在 MySQL 上实跑
-- ⏳ 待做：前端页面、大模型直连实测、CI 实跑
+- ⏳ 待做：推送到 GitHub（CI 实跑）、接真实大模型实测、Docker 整链路验证
