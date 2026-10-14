@@ -165,6 +165,31 @@ def test_image_generation_requires_shots_first(client):
     assert "先生成分镜" in finished["error"]
 
 
+def test_mock_placeholder_matches_configured_size():
+    """mock 占位图的版式必须跟着 IMAGE_SIZE 走。
+
+    否则会出现一个很隐蔽的问题：mock 阶段一切正常，接上真实厂商后
+    才发现"生成的图方向和成片不一致，合成出来上下全是黑边"——
+    而这种问题在 mock 阶段本该就能看出来。
+    """
+    import asyncio
+    import struct
+
+    from app.core.config import get_settings
+    from app.services.images.mock import MockImageProvider
+
+    data = asyncio.run(MockImageProvider().generate(prompt="a rainy night convenience store"))
+
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "应该是一张真实 PNG"
+    # PNG 的第 16-24 字节就是 IHDR 里的宽和高（大端 4 字节）
+    width, height = struct.unpack(">II", data[16:24])
+
+    configured = get_settings().image_size
+    expected = tuple(int(part) for part in configured.lower().split("x"))
+    assert (width, height) == expected, f"占位图应为 {expected}，实际 {(width, height)}"
+    assert height > width, "竖屏短剧的画面应该是竖的（高 > 宽）"
+
+
 def test_deleting_drama_removes_image_files(client):
     """删短剧要顺手删磁盘上的图片 —— 数据库级联删除不会管文件。"""
     import os

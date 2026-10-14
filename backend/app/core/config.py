@@ -65,7 +65,11 @@ class Settings(BaseSettings):
     image_api_key: str = ""
     image_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     image_model: str = "cogview-3-flash"
-    image_size: str = "1024x1024"
+    # 尺寸要和成片方向一致！我们的成片是 720x1280 竖屏（9:16），
+    # 如果这里生成正方形图，合成时会上下各留一大条黑边（近一半画面是黑的）。
+    # 智谱支持的枚举里 768x1344 最接近 9:16，几乎铺满竖屏。
+    # （720x1440 是 1:2，更瘦，反而会左右留边 —— 所以选 768x1344。）
+    image_size: str = "768x1344"
     # 不同厂商对"尺寸"参数的叫法不同：OpenAI / 智谱用 size，硅基流动用 image_size。
     # 做成配置项，换厂商不用改代码。
     image_size_param: str = "size"
