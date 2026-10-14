@@ -84,13 +84,14 @@ class Settings(BaseSettings):
     # ---------- 配音（TTS） ----------
     # mock: 本地合成一段可播放的提示音，不联网、不花钱
     # openai_compat: 兼容 OpenAI /audio/speech 的服务
+    #   智谱 GLM-TTS（推荐，同一个智谱 Key 就能用）：
+    #       TTS_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+    #       TTS_MODEL=glm-tts      TTS_VOICE=tongtong
     #   硅基流动 CosyVoice：base_url=https://api.siliconflow.cn/v1
-    #                        model=FunAudioLLM/CosyVoice2-0.5B  voice=claire
-    #   OpenAI：            base_url=https://api.openai.com/v1  model=gpt-4o-mini-tts
     tts_provider: str = "mock"
     tts_api_key: str = ""
-    tts_base_url: str = "https://api.siliconflow.cn/v1"
-    tts_model: str = "FunAudioLLM/CosyVoice2-0.5B"
+    tts_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    tts_model: str = "glm-tts"
     tts_voice: str = "claire"
     tts_response_format: str = "mp3"
     # 有些厂商支持用 instructions 参数控制语气；不支持的厂商发了会 400，
