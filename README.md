@@ -237,7 +237,7 @@ frontend/                    # Vite + React + TS 前端
 - ✅ **TTS 配音**：只给有台词的镜头配音，mock 产出**真的能播放**的 WAV，真实厂商走 OpenAI 兼容 `/audio/speech`
 - ✅ **视频合成**：本地 ffmpeg 把「画面 + 配音」按镜头顺序拼成竖屏 MP4（720x1280），异步任务 + 进度，带鉴权播放
 - ✅ JWT 鉴权 + 资源归属：注册/登录/me + 用户只能操作自己的短剧与媒体，**已实机验证**
-- ✅ Alembic 迁移：7 条迁移链，`alembic check` 零差异，有集成测试守护
+- ✅ Alembic 迁移：8 条迁移链，`alembic check` 零差异，有集成测试守护
 - ✅ 调用配额/限流：**按用途分别设限**（分镜/大纲/画面/配音/视频）+ 调用流水（带 `kind`）+ 登录防爆破限流
 - ✅ 生成任务异步化：一张任务表支持多种任务（`kind=shots/images/audio/video`），202 + 轮询 + 进度
 - ✅ **真实大模型已接通**：DeepSeek（`LLM_PROVIDER=openai_compat`），实测大纲 4 秒、分镜 8 秒
