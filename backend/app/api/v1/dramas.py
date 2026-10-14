@@ -6,7 +6,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep
 from app.core.errors import ConflictError, NotFoundError
-from app.db.models import Drama, Episode, Shot, User
+from app.db.models import Character, DialogueLine, Drama, Episode, Shot, User
+from app.schemas.character import CharacterRead
 from app.schemas.drama import DramaCreate, DramaDetail, DramaRead, DramaUpdate
 from app.schemas.episode import (
     EpisodeCreate,
@@ -15,6 +16,7 @@ from app.schemas.episode import (
     SynopsisRead,
 )
 from app.services import media
+from app.services.cast_service import analyze_cast
 from app.services.quota import QuotaService
 from app.services.synopsis_service import generate_synopsis
 
@@ -99,6 +101,15 @@ def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
             )
         )
     )
+    # 逐句配音的文件也要清（一个镜头可能存了好几段单句音频）
+    line_audio_paths = list(
+        db.scalars(
+            select(DialogueLine.audio_path)
+            .join(Shot, DialogueLine.shot_id == Shot.id)
+            .join(Episode, Shot.episode_id == Episode.id)
+            .where(Episode.drama_id == drama.id, DialogueLine.audio_path.is_not(None))
+        )
+    )
 
     db.delete(drama)  # cascade 会连带删掉剧集和镜头
     db.commit()
@@ -108,6 +119,48 @@ def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
         media.delete(audio_path)
     for video_path in video_paths:
         media.delete(video_path)
+    for line_audio_path in line_audio_paths:
+        media.delete(line_audio_path)
+
+
+@router.get("/{drama_id}/characters", response_model=list[CharacterRead], summary="这部剧的角色表")
+def list_characters(drama_id: int, db: DbSession, user: CurrentUser) -> list[Character]:
+    drama = _get_owned_drama(db, drama_id, user)
+    return list(
+        db.scalars(select(Character).where(Character.drama_id == drama.id).order_by(Character.id))
+    )
+
+
+@router.post(
+    "/{drama_id}/cast/analyze",
+    response_model=list[CharacterRead],
+    summary="AI 分析角色表（配音的选角依据）",
+)
+async def analyze_drama_cast(
+    drama_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    provider: LlmProvider,
+    quota: QuotaServiceDep,
+) -> list[Character]:
+    """读剧本，判断每个角色的性别、年龄段、说话风格，并据此分配音色。
+
+    为什么单独做一个接口（而不是藏在"生成配音"里）：
+    这是需要**人工过目**的一步 —— AI 会猜错性别，也会把龙套判成主角。
+    单独跑一次、让用户在界面上改完，再去配音，音色才不会错得离谱。
+    （当然，直接点"生成配音"时如果还没有角色表，任务里也会自动先分析一次。）
+    """
+    drama = _get_owned_drama(db, drama_id, user)
+
+    quota.ensure_allowed(db, user.id, kind="cast")
+    log = quota.record(db, user_id=user.id, episode_id=None, provider=provider.name, kind="cast")
+    try:
+        characters = await analyze_cast(db, drama=drama, provider=provider)
+    except Exception:
+        quota.finish(db, log, "failed")
+        raise
+    quota.finish(db, log, "success")
+    return characters
 
 
 # ---------------- 剧集（挂在短剧下面） ----------------

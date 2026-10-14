@@ -191,13 +191,16 @@ def create_audio_task(
     db: DbSession,
     user: CurrentUser,
     provider: TtsProviderDep,
+    llm: LlmProvider,
     quota: QuotaServiceDep,
     session_factory: SessionFactoryDep,
 ) -> GenerationTask:
     """把每个镜头的台词变成语音。
 
-    只有**有台词**的镜头才会被配音：纯画面镜头没话可说，
-    给它生成音频既没意义又白花钱（total 里也不计入）。
+    **逐句配音**：一个镜头里可能有好几个人说话（`陈默：…` / `林晚：…`），
+    每一句会用各自角色的音色、语速、音高分别合成，再拼成这个镜头的音频。
+    所以这个任务除了 TTS，还会用大模型做两件事：分析角色表、逐句判断情绪语气。
+    只有**有台词**的镜头才算进 total：纯画面镜头没话可说。
     """
     episode = _get_owned_episode(db, episode_id, user)
 
@@ -228,6 +231,7 @@ def create_audio_task(
         provider=provider,
         session_factory=session_factory,
         only_missing=payload.only_missing,
+        llm=llm,
     )
     return task
 

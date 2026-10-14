@@ -89,33 +89,38 @@ def test_audio_without_generation_is_404(client):
 
 
 def test_audio_failure_is_isolated_per_shot(client):
+    """某个镜头的台词全部合成失败，不影响其它镜头继续配音。
+
+    注意现在有**两层**失败隔离：
+      - 句级：一个镜头里某一句失败，其它句照样拼进镜头音频（见 test_dubbing.py）
+      - 镜头级：一个镜头彻底失败，其它镜头继续（就是本用例）
+    """
     from app.api.deps import get_tts_provider
     from app.services.tts.base import TtsProvider
+    from app.services.tts.mock import MockTtsProvider
 
     class FlakyTts(TtsProvider):
         name = "flaky"
         extension = "wav"
 
-        def __init__(self):
-            self.calls = 0
-
-        async def synthesize(self, *, text: str, style: str = "") -> bytes:
-            self.calls += 1
-            if self.calls == 1:
+        async def synthesize(self, *, text: str, style: str = "", voice=None, speed=None) -> bytes:
+            # 让第一个镜头的每一句都失败（按台词内容精确命中，避免受调用顺序影响）
+            if "那天之后" in text:
                 raise RuntimeError("模拟配音服务超时")
-            return b"RIFF" + b"\x00" * 2000 + b"WAVE"
+            return await MockTtsProvider().synthesize(text=text, voice=voice, speed=speed)
 
     client.app.dependency_overrides[get_tts_provider] = lambda: FlakyTts()
     _, episode = _prepare_with_shots(client)
 
     task = _run_audio_task(client, episode["id"])
     finished = client.get(f"/api/v1/tasks/{task['id']}").json()
-    assert finished["status"] == "succeeded"
+    assert finished["status"] == "succeeded"  # 部分成功仍算成功
+    assert finished["done"] == finished["total"]
 
     detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
     failed = [s for s in detail["shots"] if s["audio_error"]]
     ok = [s for s in detail["shots"] if s["audio_path"]]
-    assert len(failed) == 1
+    assert len(failed) == 1, "应该正好一个镜头失败"
     assert "超时" in failed[0]["audio_error"]
     assert len(ok) == finished["total"] - 1
 
@@ -132,8 +137,15 @@ def test_audio_quota_is_separate(client):
     assert "配音" in resp.json()["error"]["message"]
 
 
-def test_switching_provider_extension_removes_old_file(client):
-    """换厂商会换音频扩展名，旧文件不能变成孤儿。"""
+def test_audio_format_is_normalized_to_wav(client):
+    """换厂商会换音频格式，但我们**统一转成 WAV 落盘**。
+
+    为什么（这是刻意的设计，不是偷懒）：
+    逐句音频要拼接、还要和画面一起封装进 MP4。中间文件格式统一，
+    拼接和封装才是确定的（不用为每家厂商的 mp3/aac 分别适配）。
+    所以"厂商产出什么格式"不再决定最终文件的扩展名 ——
+    这条测试锁住的就是这个约定。
+    """
     import os
 
     from app.api.deps import get_tts_provider
@@ -143,7 +155,8 @@ def test_switching_provider_extension_removes_old_file(client):
         name = "fake-mp3"
         extension = "mp3"
 
-        async def synthesize(self, *, text: str, style: str = "") -> bytes:
+        async def synthesize(self, *, text, style="", voice=None, speed=None) -> bytes:
+            # 故意返回"mp3"（其实是假字节）：最终落盘仍应是 wav
             return b"ID3" + b"\x00" * 2000
 
     _, episode = _prepare_with_shots(client)
@@ -151,18 +164,24 @@ def test_switching_provider_extension_removes_old_file(client):
 
     detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
     shot = next(s for s in detail["shots"] if s["audio_path"])
-    old_file = os.path.join(os.environ["MEDIA_ROOT"], shot["audio_path"])
-    assert os.path.isfile(old_file)
-    assert shot["audio_path"].endswith(".wav")
+    assert shot["audio_path"].endswith(".wav"), shot["audio_path"]
 
-    # 换成产出 mp3 的厂商，强制重做
+    # 逐句音频同样统一为 wav
+    line_paths = [line["audio_path"] for s in detail["shots"] for line in s["lines"] if line["audio_path"]]
+    assert line_paths, "应该有逐句音频"
+    assert all(path.endswith(".wav") for path in line_paths)
+
+    # 换厂商重做，路径稳定（同名覆盖），不该产生孤儿文件
     client.app.dependency_overrides[get_tts_provider] = lambda: Mp3Tts()
     _run_audio_task(client, episode["id"], only_missing=False)
 
     detail2 = client.get(f"/api/v1/episodes/{episode['id']}").json()
     shot2 = next(s for s in detail2["shots"] if s["id"] == shot["id"])
-    assert shot2["audio_path"].endswith(".mp3")
-    assert not os.path.exists(old_file), "换格式后旧的 wav 文件应该被删掉"
+    assert shot2["audio_path"] == shot["audio_path"]
+
+    media_root = os.environ["MEDIA_ROOT"]
+    for path in line_paths:
+        assert os.path.isfile(os.path.join(media_root, path))
 
 
 def test_deleting_drama_removes_audio_files(client):

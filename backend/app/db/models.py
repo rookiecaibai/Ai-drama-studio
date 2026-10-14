@@ -8,7 +8,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -64,6 +64,45 @@ class Drama(TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="Episode.number",
     )
+    # 角色属于"剧"而不是"集"：同一个人物会贯穿全剧，音色配置不该每集重来一遍
+    characters: Mapped[list["Character"]] = relationship(
+        back_populates="drama",
+        cascade="all, delete-orphan",
+        order_by="Character.id",
+    )
+
+
+class Character(TimestampMixin, Base):
+    """剧中的角色 —— 配音时的"选角表"。
+
+    为什么需要它（而不是每次配音都猜）：
+    一个镜头里可能有好几个人说话（`陈默：…` / `林晚：…`）。
+    要让每个人有自己的声音，就必须先有一份"谁是谁"的档案：
+    性别、年龄段、性格，然后据此分配音色、音高、语速。
+
+    这份档案由 AI 先分析一遍（读剧名/梗概/大纲/台词），但**人可以改** ——
+    AI 会猜错性别，人也会想换音色，所以它是可编辑的数据，不是写死的常量。
+    """
+
+    __tablename__ = "characters"
+    __table_args__ = (UniqueConstraint("drama_id", "name", name="uq_character_drama_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    drama_id: Mapped[int] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)  # 要和台词里的说话人写法对得上
+    gender: Mapped[str] = mapped_column(String(10), default="unknown", nullable=False)  # male/female/unknown
+    age_group: Mapped[str] = mapped_column(
+        String(10), default="young", nullable=False
+    )  # child/teen/young/middle/elderly
+    voice: Mapped[str] = mapped_column(String(40), default="", nullable=False)  # 音色 id
+    # 音高偏移（0.06 = 升高 6%）。只有一个男声可用时，靠它派生出"年轻/中年/年老"的差别
+    pitch_shift: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    speed: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)  # 基础语速
+    personality: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 性格/说话风格（喂给情感分析）
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    drama: Mapped[Drama] = relationship(back_populates="characters")
+    lines: Mapped[list["DialogueLine"]] = relationship(back_populates="character")
 
 
 class Episode(TimestampMixin, Base):
@@ -113,6 +152,44 @@ class Shot(TimestampMixin, Base):
     audio_error: Mapped[str | None] = mapped_column(Text, default=None)
 
     episode: Mapped[Episode] = relationship(back_populates="shots")
+    # 这个镜头里的台词，一句一条。
+    # 为什么要拆成独立表，而不是直接用 Shot.dialogue 那段文本：
+    #   ① 一个镜头可能有多个人说话（`陈默：…` / `林晚：…`），
+    #      每一句要用**各自角色的音色和语速**合成，逐句的音频和状态得分别记录；
+    #   ② 情感分析是按"句"给结果的（这句是急迫、那句是暧昧），文本字段塞不下；
+    #   ③ 某一句合成失败时，其它句还能保留，重试只需要补那一句。
+    lines: Mapped[list["DialogueLine"]] = relationship(
+        back_populates="shot",
+        cascade="all, delete-orphan",
+        order_by="DialogueLine.index",
+    )
+
+
+class DialogueLine(TimestampMixin, Base):
+    """镜头里的一句台词（谁说的、说什么、什么情绪、合成到哪一步了）。"""
+
+    __tablename__ = "dialogue_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shot_id: Mapped[int] = mapped_column(ForeignKey("shots.id", ondelete="CASCADE"), index=True)
+    index: Mapped[int] = mapped_column(default=0, nullable=False)  # 在镜头内的顺序（从 0 开始）
+    speaker: Mapped[str] = mapped_column(String(60), default="", nullable=False)  # 原始说话人写法
+    character_id: Mapped[int | None] = mapped_column(
+        ForeignKey("characters.id", ondelete="SET NULL"), default=None, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, default="", nullable=False)  # **只含要朗读的内容**
+    cue: Mapped[str] = mapped_column(String(60), default="", nullable=False)  # 括号提示：内心独白/来电显示…
+    emotion: Mapped[str] = mapped_column(String(20), default="", nullable=False)  # AI 判断的情绪
+    intensity: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)  # 情绪强度 0~1
+    # 最终语速（角色基础语速 × 情绪修正）。
+    # **为 None 表示还没做情绪分析**，此时用角色自己的基础语速 ——
+    # 不能用 1.0 当默认值：1.0 是真值，会把角色语速（0.88/1.04 之类）永久盖掉。
+    speed: Mapped[float | None] = mapped_column(Float, default=None)
+    audio_path: Mapped[str | None] = mapped_column(String(255), default=None)  # 这一句的音频
+    audio_error: Mapped[str | None] = mapped_column(Text, default=None)
+
+    shot: Mapped[Shot] = relationship(back_populates="lines")
+    character: Mapped[Character | None] = relationship(back_populates="lines")
 
 
 class GenerationLog(TimestampMixin, Base):

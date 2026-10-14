@@ -63,7 +63,19 @@ class MockTtsProvider(TtsProvider):
     name = "mock"
     extension = "wav"
 
-    async def synthesize(self, *, text: str, style: str = "") -> bytes:
+    async def synthesize(
+        self,
+        *,
+        text: str,
+        style: str = "",
+        voice: str | None = None,
+        speed: float | None = None,
+    ) -> bytes:
         if not text.strip():
             raise ValueError("没有可配音的文字")
-        return _render_wav(_duration_for(text), _frequency_for(text + style))
+        # 语速也要在 mock 里体现出来：否则"急迫 -> 调快语速"这条逻辑
+        # 在 mock 阶段完全看不出来，等接上真厂商才发现问题。
+        seconds = _duration_for(text) / max(0.1, speed or 1.0)
+        # 把音色也算进音高：不同角色在 mock 下也能听出"不是同一个声音"
+        frequency = _frequency_for(f"{voice or ''}|{text}|{style}")
+        return _render_wav(seconds, frequency)

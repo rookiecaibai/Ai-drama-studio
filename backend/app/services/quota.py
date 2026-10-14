@@ -30,6 +30,7 @@ _KIND_LABEL = {
     "images": "生成画面",
     "audio": "生成配音",
     "video": "合成视频",
+    "cast": "分析角色",
 }
 
 

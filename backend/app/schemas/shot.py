@@ -14,6 +14,24 @@ class ShotBase(BaseModel):
     image_prompt: str = Field(default="", description="给文生图模型的提示词")
 
 
+class DialogueLineRead(BaseModel):
+    """镜头里的一句台词：谁说的、什么情绪、合成到哪一步。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    index: int
+    speaker: str
+    character_id: int | None = None
+    text: str  # 只含要朗读的内容（角色名已经被解析层摘掉了）
+    cue: str
+    emotion: str  # AI 判断的情绪，如 "急迫"
+    intensity: float
+    speed: float | None = None  # 最终语速；None = 还没做情绪分析（此时用角色基础语速）
+    audio_path: str | None = None
+    audio_error: str | None = None
+
+
 class ShotRead(ShotBase):
     # from_attributes=True 让 Pydantic 能直接从 ORM 对象读属性，
     # 否则要手写一堆 {"a": obj.a, ...} 的转换代码
@@ -30,3 +48,5 @@ class ShotRead(ShotBase):
     # 配音同理：走 GET /api/v1/shots/{id}/audio
     audio_path: str | None = None
     audio_error: str | None = None
+    # 逐句台词：前端据此显示"谁说的、什么情绪"，也是多角色配音的依据
+    lines: list[DialogueLineRead] = []

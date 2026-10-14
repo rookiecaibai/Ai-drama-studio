@@ -206,10 +206,12 @@ async def run_audio_task(
     provider: TtsProvider,
     session_factory: sessionmaker[Session],
     only_missing: bool = True,
+    llm: LLMProvider | None = None,
 ) -> None:
     """后台为某一集的台词批量生成配音。
 
     和图片任务同构：同一张任务表、同一套状态机、同一个轮询接口，只是 kind=audio。
+    区别在于它还会用 llm 做两件事：分析角色表、逐句判断情绪语气（见 tts_service）。
     """
     with session_factory() as db:
         task = db.get(GenerationTask, task_id)
@@ -239,6 +241,7 @@ async def run_audio_task(
                 only_missing=only_missing,
                 on_total=_on_total,
                 on_progress=_on_progress,
+                llm=llm,
             )
         except Exception as exc:  # noqa: BLE001
             task.status = "failed"

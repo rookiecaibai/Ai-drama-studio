@@ -17,10 +17,20 @@ class TtsProvider(ABC):
     extension: str = "mp3"
 
     @abstractmethod
-    async def synthesize(self, *, text: str, style: str = "") -> bytes:
+    async def synthesize(
+        self,
+        *,
+        text: str,
+        style: str = "",
+        voice: str | None = None,
+        speed: float | None = None,
+    ) -> bytes:
         """把一段文字合成为语音。
 
-        style 对应镜头里的 audio_prompt（语气/情绪提示），
-        是否真的用得上取决于厂商是否支持 instructions 之类的参数。
+        style  对应镜头里的 audio_prompt（语气提示）；
+        voice  这一句用哪个音色 —— **必须支持逐句指定**，
+               因为一个镜头里可能有好几个人说话，每个人音色不同（多角色配音的前提）。
+               传 None 就用配置里的默认音色。
+        speed  语速（1.0 正常）。由情感分析算出来：急迫调快、悲伤放慢。
         """
         raise NotImplementedError

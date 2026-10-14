@@ -78,6 +78,15 @@ def episode_video_rel_path(episode_id: int) -> str:
     return f"videos/episodes/{episode_id}.mp4"
 
 
+def line_audio_rel_path(line_id: int) -> str:
+    """单句台词的音频存哪里。
+
+    为什么要逐句存：一个镜头里可能有多个人说话，每句要用各自角色的音色合成；
+    逐句落盘后，某一句失败只要重做那一句，不用整段重来。
+    """
+    return f"audio/lines/{line_id}.wav"
+
+
 def build_work_dir(name: str) -> Path:
     """给需要中间文件的活儿（比如视频合成的分镜片段）准备一个临时目录。
 

@@ -52,13 +52,23 @@ class OpenAICompatTtsProvider(TtsProvider):
         self._timeout = timeout
         self.extension = response_format if response_format in ("mp3", "wav", "opus", "aac", "flac") else "mp3"
 
-    async def synthesize(self, *, text: str, style: str = "") -> bytes:
+    async def synthesize(
+        self,
+        *,
+        text: str,
+        style: str = "",
+        voice: str | None = None,
+        speed: float | None = None,
+    ) -> bytes:
         payload: dict = {
             "model": self._model,
             "input": text,
-            "voice": self._voice,
+            # 逐句音色优先；没指定就用配置里的默认音色
+            "voice": voice or self._voice,
             "response_format": self._response_format,
         }
+        if speed is not None:
+            payload["speed"] = round(float(speed), 3)
         if self._instructions_param and style.strip():
             payload[self._instructions_param] = style.strip()
 

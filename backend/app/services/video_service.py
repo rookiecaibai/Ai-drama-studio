@@ -30,80 +30,14 @@ from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.models import Episode, Shot
 from app.services import media
+# ffmpeg 的公共封装已提到 app/services/ffmpeg.py（配音也要用它变调和拼接）。
+# 这里 re-export 是为了保持原有导入路径可用（测试和别处一直从本模块 import）。
+from app.services.ffmpeg import ffmpeg_exe, probe_duration_sec, run_ffmpeg  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 AUDIO_RATE = 44100
 SPEAKER = "成片"
-
-_ffmpeg_path: str | None = None
-
-
-def ffmpeg_exe() -> str:
-    """找到可用的 ffmpeg。
-
-    优先级：配置指定 -> 系统 PATH -> imageio-ffmpeg 自带的内置二进制。
-    最后这层很重要：开发机不用手工装 ffmpeg 也能跑通整条链路。
-    """
-    global _ffmpeg_path
-    if _ffmpeg_path:
-        return _ffmpeg_path
-
-    settings = get_settings()
-
-    if settings.ffmpeg_path:
-        candidate = shutil.which(settings.ffmpeg_path) or settings.ffmpeg_path
-        if Path(candidate).is_file():
-            _ffmpeg_path = candidate
-            return candidate
-        logger.warning("配置的 FFMPEG_PATH 不存在: %s，继续自动查找", settings.ffmpeg_path)
-
-    found = shutil.which("ffmpeg")
-    if found:
-        _ffmpeg_path = found
-        return found
-
-    try:
-        import imageio_ffmpeg
-
-        _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-        logger.info("使用 imageio-ffmpeg 内置的 ffmpeg: %s", _ffmpeg_path)
-        return _ffmpeg_path
-    except Exception as exc:  # noqa: BLE001
-        raise AppError(
-            "找不到 ffmpeg：请安装 ffmpeg 并加入 PATH，或用 FFMPEG_PATH 指定路径，"
-            "或安装 imageio-ffmpeg（自带二进制）",
-            code="ffmpeg_missing",
-            status_code=500,
-        ) from exc
-
-
-def _run(args: list[str]) -> None:
-    proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if proc.returncode != 0:
-        tail = " | ".join((proc.stderr or "").strip().splitlines()[-5:])
-        logger.error("ffmpeg 失败: %s\n%s", args[0], proc.stderr)
-        raise AppError(f"ffmpeg 执行失败: {tail}", code="ffmpeg_failed", status_code=500)
-
-
-def probe_duration_sec(path: Path) -> float | None:
-    """读出一个媒体文件的时长（秒）。
-
-    用的是 `ffmpeg -i 文件` 打印到 stderr 的 "Duration: 00:00:03.45"。
-    为什么要能读时长：合成完可以校验成片长度是否符合预期。
-    """
-    proc = subprocess.run(
-        [ffmpeg_exe(), "-i", str(path)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", proc.stderr or "")
-    if not match:
-        return None
-    hours, minutes, seconds = match.groups()
-    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
 def _build_clip_args(*, exe: str, shot: Shot, image: Path, audio: Path | None, out: Path) -> list[str]:
@@ -188,7 +122,7 @@ def compose_episode_video(
                 if shot.audio_path and media.exists(shot.audio_path)
                 else None
             )
-            _run(
+            run_ffmpeg(
                 _build_clip_args(
                     exe=exe,
                     shot=shot,
@@ -212,7 +146,7 @@ def compose_episode_video(
         out_abs = media.absolute_path(out_rel)
         out_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        _run(
+        run_ffmpeg(
             [
                 exe,
                 "-y",
