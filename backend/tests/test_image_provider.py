@@ -170,3 +170,42 @@ def test_missing_api_key_fails_fast():
     with pytest.raises(LLMError) as exc:
         OpenAICompatImageProvider(api_key="", base_url="http://x", model="m", size="1x1")
     assert "IMAGE_API_KEY" in str(exc.value)
+
+
+def test_extra_params_are_merged_into_request(vendor):
+    """厂商私有参数要能透传进请求体。
+
+    典型用途：智谱去水印的 `watermark_enabled: false`。
+    注意这个参数**必须配合控制台的"去水印管理"开关**才生效（官方文档写明）。
+    """
+    provider = OpenAICompatImageProvider(
+        api_key="k",
+        base_url=vendor.base_url,  # type: ignore[attr-defined]
+        model="m",
+        size="768x1344",
+        extra_params={"watermark_enabled": False},
+    )
+    asyncio.run(provider.generate(prompt="x"))
+
+    sent = vendor.received[0]["payload"]
+    assert sent["watermark_enabled"] is False
+    assert sent["model"] == "m"
+    assert sent["prompt"] == "x"
+    assert sent["size"] == "768x1344"
+
+
+def test_required_fields_cannot_be_overridden_by_extra_params(vendor):
+    """额外参数优先级必须低于必需字段 —— 否则配置写错就把请求搞坏了。"""
+    provider = OpenAICompatImageProvider(
+        api_key="k",
+        base_url=vendor.base_url,  # type: ignore[attr-defined]
+        model="m",
+        size="768x1344",
+        extra_params={"model": "hacked", "prompt": "hacked", "size": "1x1"},
+    )
+    asyncio.run(provider.generate(prompt="real"))
+
+    sent = vendor.received[0]["payload"]
+    assert sent["model"] == "m"
+    assert sent["prompt"] == "real"
+    assert sent["size"] == "768x1344"

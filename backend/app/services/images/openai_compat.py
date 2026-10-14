@@ -65,6 +65,7 @@ class OpenAICompatImageProvider(ImageProvider):
         size: str,
         size_param: str = "size",
         timeout: float = 120.0,
+        extra_params: dict | None = None,
     ):
         if not api_key:
             raise LLMError(
@@ -78,13 +79,19 @@ class OpenAICompatImageProvider(ImageProvider):
         self._size = size
         self._size_param = size_param
         self._timeout = timeout
+        self._extra_params = extra_params or {}
 
     async def generate(self, *, prompt: str) -> bytes:
-        payload = {
-            "model": self._model,
-            "prompt": prompt,
-            self._size_param: self._size,
-        }
+        # 先铺厂商私有参数，再用必需字段覆盖它们 ——
+        # 这样即使配置里写错（比如把 prompt 写进额外参数）也不会破坏请求契约。
+        payload: dict = dict(self._extra_params)
+        payload.update(
+            {
+                "model": self._model,
+                "prompt": prompt,
+                self._size_param: self._size,
+            }
+        )
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:

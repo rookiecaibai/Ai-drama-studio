@@ -2,6 +2,7 @@
 
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.services.llm.params import parse_extra_params
 from app.services.tts.base import TtsProvider
 from app.services.tts.mock import MockTtsProvider
 from app.services.tts.openai_compat import OpenAICompatTtsProvider
@@ -22,6 +23,7 @@ def build_tts_provider(settings: Settings) -> TtsProvider:
             response_format=settings.tts_response_format,
             instructions_param=settings.tts_instructions_param,
             timeout=settings.tts_timeout_sec,
+            extra_params=parse_extra_params(settings.tts_extra_params, name="TTS_EXTRA_PARAMS"),
         )
 
     raise AppError(

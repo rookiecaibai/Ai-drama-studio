@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     # 生成的图片存哪里（相对 backend 目录）；对外通过带鉴权的接口读取，不做静态目录暴露
     media_root: str = "./media"
 
+    # 厂商私有参数的透传口（JSON 字符串），会合并进请求体。
+    # 为什么需要它：不同厂商有自己的私有参数，做成配置就不必为每家改代码。
+    # 例（智谱去水印，需先在控制台"个人中心-安全管理-去水印管理"打开开关）：
+    #   IMAGE_EXTRA_PARAMS={"watermark_enabled": false}
+    # 注意：model / prompt / size 这些必需字段优先级更高，额外参数覆盖不了它们。
+    image_extra_params: str = ""
+    tts_extra_params: str = ""
+
     # 每用户每天最多生成多少张图 —— 图片比文本贵得多，必须单独设限
     daily_image_limit: int = 30
 

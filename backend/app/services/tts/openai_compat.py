@@ -36,6 +36,7 @@ class OpenAICompatTtsProvider(TtsProvider):
         response_format: str = "mp3",
         instructions_param: str = "",
         timeout: float = 120.0,
+        extra_params: dict | None = None,
     ):
         if not api_key:
             raise LLMError(
@@ -50,6 +51,7 @@ class OpenAICompatTtsProvider(TtsProvider):
         self._response_format = response_format
         self._instructions_param = instructions_param
         self._timeout = timeout
+        self._extra_params = extra_params or {}
         self.extension = response_format if response_format in ("mp3", "wav", "opus", "aac", "flac") else "mp3"
 
     async def synthesize(
@@ -60,13 +62,17 @@ class OpenAICompatTtsProvider(TtsProvider):
         voice: str | None = None,
         speed: float | None = None,
     ) -> bytes:
-        payload: dict = {
-            "model": self._model,
-            "input": text,
-            # 逐句音色优先；没指定就用配置里的默认音色
-            "voice": voice or self._voice,
-            "response_format": self._response_format,
-        }
+        # 先铺厂商私有参数（如智谱的 watermark_enabled），必需字段随后覆盖它们
+        payload: dict = dict(self._extra_params)
+        payload.update(
+            {
+                "model": self._model,
+                "input": text,
+                # 逐句音色优先；没指定就用配置里的默认音色
+                "voice": voice or self._voice,
+                "response_format": self._response_format,
+            }
+        )
         if speed is not None:
             payload["speed"] = round(float(speed), 3)
         if self._instructions_param and style.strip():

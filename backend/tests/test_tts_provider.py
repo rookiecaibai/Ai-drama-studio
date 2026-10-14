@@ -157,6 +157,24 @@ def test_missing_key_fails_fast():
     assert "TTS_API_KEY" in str(exc.value)
 
 
+def test_extra_params_and_speed_are_sent(vendor):
+    """配音也要能透传厂商私有参数（比如去水印），并且支持逐句指定语速。"""
+    provider = OpenAICompatTtsProvider(
+        api_key="k",
+        base_url=vendor.base_url,  # type: ignore[attr-defined]
+        model="glm-tts",
+        voice="tongtong",
+        extra_params={"watermark_enabled": False},
+    )
+    asyncio.run(provider.synthesize(text="你好", voice="xiaochen", speed=1.25))
+
+    sent = vendor.received[0]["payload"]
+    assert sent["watermark_enabled"] is False
+    assert sent["voice"] == "xiaochen", "逐句音色要覆盖默认音色"
+    assert sent["speed"] == 1.25
+    assert sent["model"] == "glm-tts"
+
+
 def test_mock_provider_produces_valid_wav():
     """mock 也要产出**真的能播放**的 WAV —— 否则"音频能不能播"这件事就没被验证。"""
     from app.services.tts.mock import MockTtsProvider

@@ -5,6 +5,7 @@ from app.core.errors import AppError
 from app.services.images.base import ImageProvider
 from app.services.images.mock import MockImageProvider
 from app.services.images.openai_compat import OpenAICompatImageProvider
+from app.services.llm.params import parse_extra_params
 
 
 def build_image_provider(settings: Settings) -> ImageProvider:
@@ -21,6 +22,9 @@ def build_image_provider(settings: Settings) -> ImageProvider:
             size=settings.image_size,
             size_param=settings.image_size_param,
             timeout=settings.image_timeout_sec,
+            extra_params=parse_extra_params(
+                settings.image_extra_params, name="IMAGE_EXTRA_PARAMS"
+            ),
         )
 
     raise AppError(
