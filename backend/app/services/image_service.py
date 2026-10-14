@@ -50,14 +50,19 @@ async def generate_images_for_episode(
                 on_progress()
             continue
 
+        previous = shot.image_path
         try:
             data = await provider.generate(prompt=prompt)
         except Exception as exc:  # noqa: BLE001 —— 单张失败要兜住，不能中断整批
             shot.image_error = str(exc)[:300]
             logger.warning("镜头 %s 画面生成失败: %s", shot.id, exc)
         else:
-            rel_path = media.shot_image_rel_path(shot.id)
+            # 按**文件头**决定扩展名，而不是假设厂商返回 PNG
+            # （智谱实际返回 JPEG —— 见 media.detect_image_extension 的说明）
+            rel_path = media.shot_image_rel_path(shot.id, media.detect_image_extension(data))
             media.save_bytes(rel_path, data)
+            if previous and previous != rel_path:
+                media.delete(previous)  # 换厂商导致格式变了，删掉旧文件
             shot.image_path = rel_path
             shot.image_error = None
             succeeded += 1

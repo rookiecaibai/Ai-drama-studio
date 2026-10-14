@@ -35,7 +35,10 @@ def get_shot_image(shot_id: int, db: DbSession, user: CurrentUser) -> FileRespon
 
     return FileResponse(
         media.absolute_path(shot.image_path),
-        media_type="image/png",
+        # Content-Type 必须按文件真实格式给 —— 厂商可能返回 JPEG 而不是 PNG。
+        # 这里曾经写死 "image/png"，而智谱实际返回 JPEG：浏览器靠嗅探能显示，
+        # 但对 CDN、严格校验的客户端就是错的。
+        media_type=media.content_type_for(shot.image_path),
         # 图片按镜头 id 固定路径，重新生成会覆盖同名文件，
         # 所以加 no-cache 让浏览器每次都取新的，避免看到旧图
         headers={"Cache-Control": "no-cache"},

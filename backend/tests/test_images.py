@@ -190,6 +190,71 @@ def test_mock_placeholder_matches_configured_size():
     assert height > width, "竖屏短剧的画面应该是竖的（高 > 宽）"
 
 
+def test_jpeg_from_provider_is_stored_and_served_as_jpeg(client):
+    """厂商可能返回 JPEG（智谱就是），扩展名和 Content-Type 必须按**真实格式**走。
+
+    这个 bug 真实发生过：我们一律按 `.png` 存盘、按 `image/png` 返回，
+    而智谱返回的其实是 JPEG。浏览器会嗅探格式所以"看着正常"，
+    但对 CDN、严格校验的客户端、按 Content-Type 处理的下游都是错的 ——
+    属于那种"不报错但就是不对"的问题。
+    """
+    import os
+
+    from app.api.deps import get_image_provider
+    from app.services.images.base import ImageProvider
+
+    class JpegProvider(ImageProvider):
+        name = "fake-jpeg"
+
+        async def generate(self, *, prompt: str) -> bytes:
+            return b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 2000
+
+    client.app.dependency_overrides[get_image_provider] = lambda: JpegProvider()
+    _, episode, _ = _prepare_with_shots(client)
+    _run_image_task(client, episode["id"])
+
+    detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
+    for shot in detail["shots"]:
+        assert shot["image_path"].endswith(".jpg"), f"应按真实格式存为 .jpg，实际 {shot['image_path']}"
+        assert os.path.isfile(os.path.join(os.environ["MEDIA_ROOT"], shot["image_path"]))
+
+    resp = client.get(f"/api/v1/shots/{detail['shots'][0]['id']}/image")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg", "Content-Type 必须跟着真实格式"
+    assert resp.content.startswith(b"\xff\xd8\xff")
+
+
+def test_switching_image_format_removes_old_file(client):
+    """换厂商导致图片格式变了（png -> jpg），旧文件不能变成孤儿。"""
+    import os
+
+    from app.api.deps import get_image_provider
+    from app.services.images.base import ImageProvider
+
+    _, episode, _ = _prepare_with_shots(client)
+    _run_image_task(client, episode["id"])  # mock 出 PNG
+
+    detail = client.get(f"/api/v1/episodes/{episode['id']}").json()
+    shot = detail["shots"][0]
+    assert shot["image_path"].endswith(".png")
+    old_file = os.path.join(os.environ["MEDIA_ROOT"], shot["image_path"])
+    assert os.path.isfile(old_file)
+
+    class JpegProvider(ImageProvider):
+        name = "fake-jpeg"
+
+        async def generate(self, *, prompt: str) -> bytes:
+            return b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 2000
+
+    client.app.dependency_overrides[get_image_provider] = lambda: JpegProvider()
+    _run_image_task(client, episode["id"], only_missing=False)
+
+    detail2 = client.get(f"/api/v1/episodes/{episode['id']}").json()
+    shot2 = next(s for s in detail2["shots"] if s["id"] == shot["id"])
+    assert shot2["image_path"].endswith(".jpg")
+    assert not os.path.exists(old_file), "换格式后旧的 png 文件应该被删掉"
+
+
 def test_deleting_drama_removes_image_files(client):
     """删短剧要顺手删磁盘上的图片 —— 数据库级联删除不会管文件。"""
     import os

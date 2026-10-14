@@ -25,13 +25,44 @@ def media_root() -> Path:
     return root
 
 
-def shot_image_rel_path(shot_id: int) -> str:
+def shot_image_rel_path(shot_id: int, extension: str = "png") -> str:
     """某一镜头的画面存哪个相对路径。
 
     用镜头 id 而不用"剧集+序号"：镜头重新生成时直接覆盖同一个文件，
     天然幂等，也不会留下孤儿文件。
+
+    扩展名由调用方给出（不能写死！）—— 见 detect_image_extension 的说明。
     """
-    return f"shots/{shot_id}.png"
+    return f"shots/{shot_id}.{extension.lstrip('.')}"
+
+
+#: 图片格式的魔数（文件头字节 -> 扩展名）
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpg"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+)
+
+
+def detect_image_extension(data: bytes) -> str:
+    """从文件头判断图片真实格式。
+
+    **为什么必须有这一步（真实踩到的坑）**：
+    我们最初把厂商返回的图片一律按 `.png` 存盘、并按 `image/png` 返回给浏览器。
+    但智谱返回的其实是 **JPEG** —— 结果就是"文件内容是 JPEG，扩展名和
+    Content-Type 都说是 PNG"。
+    浏览器会嗅探格式所以看着正常，可这是明确的技术错误：
+    CDN、严格校验的客户端、需要按 Content-Type 处理的下游都会出问题。
+
+    **教训：厂商返回的二进制格式不要靠假设，要靠文件头判断。**
+    """
+    for magic, extension in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return extension
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return "png"  # 认不出来时按 png 存（至少是个自洽的默认值）
 
 
 def shot_audio_rel_path(shot_id: int, extension: str = "mp3") -> str:
