@@ -487,6 +487,64 @@ def test_real_provider_reports_rate_limit_clearly(tmp_path):
     assert "限流" in str(exc.value)
 
 
+def test_duration_can_be_omitted_for_models_that_do_not_support_it(tmp_path):
+    """cogvideox-2 / cogvideox-flash 没有 duration 参数，必须能关掉。
+
+    厂商之间的参数差异只能靠配置吸收 —— 按模型名硬编码判断会在厂商更新枚举时失效。
+    这里用 429 假厂商：只要请求发出去了就能检查 payload，不必走完整个轮询流程。
+    """
+    import http.server
+    import json as jsonlib
+    import socketserver
+    import threading
+
+    from app.core.errors import LLMError
+    from app.services.videos.openai_compat import OpenAICompatVideoClipProvider
+
+    captured: list[dict] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            captured.append(jsonlib.loads(self.rfile.read(length) or b"{}"))
+            body = jsonlib.dumps({"error": {"code": "1305", "message": "排队中"}}).encode()
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    image_path = tmp_path / "still.png"
+    _write_test_image(image_path)
+
+    try:
+        provider = OpenAICompatVideoClipProvider(
+            api_key="k",
+            base_url=f"http://127.0.0.1:{server.server_address[1]}",
+            model="cogvideox-2",
+            size="1080x1920",
+            send_duration=False,
+            poll_interval=0.2,
+        )
+        with pytest.raises(LLMError):
+            asyncio.run(provider.generate(image_path=image_path, prompt="x"))
+    finally:
+        server.shutdown()
+
+    assert captured, "请求应该已经发出"
+    assert "duration" not in captured[0], "关了开关就不该发 duration"
+    assert captured[0]["size"] == "1080x1920"
+
+
 def test_video_provider_factory(tmp_path):
     """工厂：none -> None；mock -> 本地运镜；openai_compat -> 真实适配器。"""
     from app.core.config import Settings

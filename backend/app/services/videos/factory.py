@@ -43,6 +43,7 @@ def build_clip_provider(settings: Settings) -> VideoClipProvider | None:
             size=settings.video_size,
             quality=settings.video_quality,
             seconds=settings.video_clip_seconds,
+            send_duration=settings.video_send_duration,
             extra_params=parse_extra_params(settings.video_extra_params, name="VIDEO_EXTRA_PARAMS"),
             timeout=settings.video_timeout_sec,
             poll_interval=settings.video_poll_interval_sec,

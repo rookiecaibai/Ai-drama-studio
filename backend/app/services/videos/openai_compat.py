@@ -97,6 +97,7 @@ class OpenAICompatVideoClipProvider(VideoClipProvider):
         size: str,
         quality: str = "speed",
         seconds: int = 5,
+        send_duration: bool = True,
         extra_params: dict | None = None,
         timeout: float = 60.0,
         poll_interval: float = 6.0,
@@ -115,6 +116,7 @@ class OpenAICompatVideoClipProvider(VideoClipProvider):
         self._size = size
         self._quality = quality
         self._seconds = seconds
+        self._send_duration = send_duration
         self._extra_params = extra_params or {}
         self._timeout = timeout
         self._poll_interval = poll_interval
@@ -137,9 +139,13 @@ class OpenAICompatVideoClipProvider(VideoClipProvider):
                 "prompt": (prompt or "让画面动起来")[:512],
                 "size": self._size,
                 "quality": self._quality,
-                "duration": self._seconds,
             }
         )
+        # duration 只有 cogvideox-3 支持；cogvideox-2 / cogvideox-flash 没有这个参数。
+        # 做成开关而不是按模型名硬判断：厂商的枚举随时会变，
+        # 由使用者按当前文档决定更可靠（配错了会拿到一条明确的 400，而不是猜）。
+        if self._send_duration:
+            payload["duration"] = self._seconds
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             task_id = await self._submit(client, payload)

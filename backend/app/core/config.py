@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     video_size: str = "720x1280"
     video_quality: str = "speed"  # speed=速度优先 / quality=质量优先
     video_clip_seconds: int = 5  # 每个镜头生成的动态片段时长
+    # 是否把 duration 发给厂商：**只有 cogvideox-3 支持这个参数**，
+    # cogvideox-2 / cogvideox-flash 没有它（发了可能报 400）。
+    # 做成开关而不是按模型名硬判断：厂商的枚举随时会变，使用者按当前文档决定更可靠。
+    video_send_duration: bool = True
     video_timeout_sec: float = 60.0  # 单次 HTTP 请求超时
     video_poll_interval_sec: float = 6.0  # 轮询异步结果的间隔
     video_poll_timeout_sec: float = 900.0  # 单个片段最长等多久（视频生成很慢）
