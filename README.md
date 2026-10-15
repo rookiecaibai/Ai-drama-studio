@@ -275,7 +275,7 @@ backend/
 │       ├── video_service.py # ffmpeg 合成（优先动态片段，退回静图）
 │       └── llm/ images/ tts/ videos/   # 四种模态的 Provider 抽象（各含 mock）
 ├── tests/                   # pytest 163 个用例（用假模型 + 临时库，不联网）
-├── alembic/                 # 数据库迁移脚本（versions/ 是版本历史，9 条）
+├── alembic/                 # 数据库迁移脚本（versions/ 是版本历史，10 条）
 ├── Dockerfile               # 多阶段构建：node 构建前端 → python 运行时
 ├── docker-compose.yml       # api + MySQL + nginx 一键起
 └── nginx/nginx.conf         # 反向代理 + 媒体流 + 前端兜底
@@ -301,7 +301,7 @@ frontend/                    # Vite + React + TS 前端
   - **像素级断言**守护"画面真的在动"：静态图 0.0% 像素变化，接入后 45%~64%
 - ✅ **视频合成**：优先用动态片段、没有就退回静图，逐段标准化后拼接成竖屏 MP4（720x1280）
 - ✅ JWT 鉴权 + 资源归属：用户只能操作自己的短剧与媒体
-- ✅ Alembic 迁移：**9 条**迁移链，`alembic check` 零差异，有集成测试守护
+- ✅ Alembic 迁移：**10 条**迁移链，`alembic check` 零差异，有集成测试守护
 - ✅ 调用配额/限流：**按用途分别设限**（分镜/大纲/画面/动态镜头/配音/成片）+ 调用流水 + 登录防爆破
 - ✅ 生成任务异步化：一张任务表支持**五种任务**（`kind=shots/images/clips/audio/video`），202 + 轮询 + 进度
 - ✅ 服务重启后自动把卡住的"假进行中"任务标记为失败
@@ -311,10 +311,11 @@ frontend/                    # Vite + React + TS 前端
 
 **还没做 / 需要注意：**
 
-- ⚠️ **Docker / Nginx 整链路未实机验证**：配置已按新功能补齐（媒体卷、50 个环境变量、
-  `location /` 兜底、多阶段构建、`.dockerignore`），并跑了 **45 项静态检查**；
-  但镜像能否构建、容器能否起来必须装 Docker Desktop 后按
-  [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 验证
+- ✅ **Docker / Nginx 整链路已实机验证**（2026-10-15）：三个容器全部 healthy，
+  `/`、`/api/v1/health`、`/docs` 全部 200，10 条迁移在容器内 MySQL 上执行成功，
+  **媒体持久化**和迁移幂等都已验证，镜像 441MB（多阶段构建生效）
 - ⚠️ **角色一致性**：同一角色在不同镜头里长相会变（图生视频通病，需要固定角色参考图）
 - ⚠️ 任务队列用的是 FastAPI `BackgroundTasks`（同进程内存），生产应换 Celery/RQ + Redis
 - ⚠️ 视频接口不支持 Range 请求，播放器拖不动进度条
+- ⚠️ 容器内**没跑过真实视频合成**（合成逻辑在 CI 的 Linux 上测过，但没在容器里实际跑，
+  因为要花真钱）；也还没上传到云服务器配 HTTPS 域名
