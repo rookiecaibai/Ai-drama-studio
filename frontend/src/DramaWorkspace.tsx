@@ -13,8 +13,10 @@ const TASK_STATUS_TEXT: Record<GenerationTask['status'], string> = {
 const TASK_KIND_TEXT: Record<GenerationTask['kind'], string> = {
   shots: '生成分镜',
   images: '生成画面',
+  clips: '生成动态镜头',
   audio: '生成配音',
   video: '合成视频',
+  cast: '分析角色',
 }
 
 export default function DramaWorkspace({
@@ -282,6 +284,30 @@ export default function DramaWorkspace({
     }
   }
 
+  /**
+   * 图生视频：把每个镜头的静图变成真的会动的短片。
+   *
+   * 不做这一步的话，成片就是"每张图定格 + 配音"的幻灯片 —— 画面完全静止。
+   * 这一步可能很慢（真实视频模型几十秒到几分钟一条），所以进度条要盯着看。
+   */
+  async function startClipGeneration() {
+    if (!selectedEpisode) return
+    if (selectedEpisode.shots.length === 0) {
+      showError(new Error('这一集还没有分镜，请先点「AI 生成分镜」'))
+      return
+    }
+    setBusy(true)
+    setError('')
+    loadedTaskId.current = null
+    try {
+      setTask(await api.generateClips(selectedEpisode.id, true))
+    } catch (err) {
+      showError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function removeDrama(id: number) {
     if (!window.confirm('确定删除这部短剧？剧集和分镜会一起删除。')) return
     try {
@@ -475,6 +501,14 @@ export default function DramaWorkspace({
                     </button>
                     <button
                       className="secondary"
+                      onClick={() => void startClipGeneration()}
+                      disabled={busy || selectedEpisode.shots.length === 0}
+                      title="把静图变成会动的短片（图生视频）。不做这步，成片里的画面是静止的；已生成的会跳过。"
+                    >
+                      生成动态镜头
+                    </button>
+                    <button
+                      className="secondary"
                       onClick={() => void startVideoComposition()}
                       disabled={busy || selectedEpisode.shots.length === 0}
                       title="把这一集的画面和配音拼成竖屏 MP4（需要先生成画面）"
@@ -512,18 +546,46 @@ export default function DramaWorkspace({
                         <tr key={s.id}>
                           <td>{s.number}</td>
                           <td className="shot-image">
-                            {s.image_path ? (
-                              <AuthMedia
-                                kind="image"
-                                path={api.shotImagePath(s.id)}
-                                alt={`镜头 ${s.number} 的画面`}
-                                className="thumb"
-                                cacheKey={mediaVersion}
-                              />
+                            {s.clip_path ? (
+                              /* 有动态片段就直接播它 —— 让用户一眼看到"画面真的在动"，
+                                 而不是只给一个"已完成"的文字标记。 */
+                              <div className="clip-cell">
+                                <AuthMedia
+                                  kind="video"
+                                  path={api.shotClipPath(s.id)}
+                                  className="thumb"
+                                  cacheKey={mediaVersion}
+                                  controls={false}
+                                  autoPlay
+                                  loop
+                                  muted
+                                />
+                                <span className="clip-badge" title="这个镜头会用这段动态片段">
+                                  会动
+                                </span>
+                              </div>
+                            ) : s.image_path ? (
+                              <div className="clip-cell">
+                                <AuthMedia
+                                  kind="image"
+                                  path={api.shotImagePath(s.id)}
+                                  alt={`镜头 ${s.number} 的画面`}
+                                  className="thumb"
+                                  cacheKey={mediaVersion}
+                                />
+                                <span className="clip-badge static" title="这个镜头是静图：点「生成动态镜头」让它动起来">
+                                  静图
+                                </span>
+                              </div>
                             ) : s.image_error ? (
                               <span className="image-error" title={s.image_error}>生成失败</span>
                             ) : (
                               <span className="muted">未生成</span>
+                            )}
+                            {s.clip_error && (
+                              <span className="image-error" title={s.clip_error}>
+                                动态片段失败
+                              </span>
                             )}
                           </td>
                           <td>{s.shot_type}</td>

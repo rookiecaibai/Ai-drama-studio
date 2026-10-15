@@ -82,3 +82,16 @@ class AudioGenerateRequest(BaseModel):
         default=True,
         description="True=只生成还没有配音的镜头（默认）；False=全部重新生成",
     )
+
+
+class ClipGenerateRequest(BaseModel):
+    """为每个镜头的画面生成动态片段（图生视频）。
+
+    动态片段比图片贵得多、也慢得多，所以默认只补缺（only_missing=True），
+    避免不小心把已经生成好的片段又全部重跑一遍。
+    """
+
+    only_missing: bool = Field(
+        default=True,
+        description="True=只生成还没有动态片段的镜头（默认）；False=全部重新生成",
+    )

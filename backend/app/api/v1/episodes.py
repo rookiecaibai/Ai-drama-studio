@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
+    ClipProviderDep,
     CurrentUser,
     DbSession,
     ImageProviderDep,
@@ -14,10 +15,11 @@ from app.api.deps import (
     SessionFactoryDep,
     TtsProviderDep,
 )
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.db.models import Episode, GenerationTask, User
 from app.schemas.episode import (
     AudioGenerateRequest,
+    ClipGenerateRequest,
     EpisodeDetail,
     EpisodeUpdate,
     GenerateRequest,
@@ -27,6 +29,7 @@ from app.schemas.task import GenerationTaskRead
 from app.services import media
 from app.services.task_service import (
     run_audio_task,
+    run_clip_task,
     run_generation_task,
     run_image_task,
     run_video_task,
@@ -232,6 +235,71 @@ def create_audio_task(
         session_factory=session_factory,
         only_missing=payload.only_missing,
         llm=llm,
+    )
+    return task
+
+
+@router.post(
+    "/{episode_id}/clips",
+    response_model=GenerationTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="为每个镜头的画面生成动态片段（图生视频，异步）",
+)
+def create_clip_task(
+    episode_id: int,
+    payload: ClipGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    user: CurrentUser,
+    provider: ClipProviderDep,
+    quota: QuotaServiceDep,
+    session_factory: SessionFactoryDep,
+) -> GenerationTask:
+    """把每个镜头的**静图**变成一段真的会动的短片。
+
+    不做这一步，成片就是"每张图定格 + 配音"的幻灯片 —— 画面完全静止。
+    这一步是可选的：没有它，合成环节会自动退回用静态图，成片照样能出。
+
+    注意这个任务**可能很慢**（真实视频模型几十秒到几分钟一条），
+    所以返回的进度（done/total）要盯着看 —— 前端轮询 /tasks/{id} 就能看到。
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+
+    if provider is None:
+        raise AppError(
+            "当前没有启用图生视频（VIDEO_CLIP_PROVIDER=none）。"
+            "可选：mock（本地运镜，免费）或 openai_compat（真实视频模型）",
+            code="clip_provider_disabled",
+            status_code=400,
+        )
+
+    quota.ensure_allowed(db, user.id, kind="clips")
+    log = quota.record(
+        db,
+        user_id=user.id,
+        episode_id=episode.id,
+        provider=provider.name,
+        kind="clips",
+    )
+
+    task = GenerationTask(
+        user_id=user.id,
+        episode_id=episode.id,
+        kind="clips",
+        provider=provider.name,
+        shot_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    background_tasks.add_task(
+        run_clip_task,
+        task_id=task.id,
+        log_id=log.id,
+        provider=provider,
+        session_factory=session_factory,
+        only_missing=payload.only_missing,
     )
     return task
 

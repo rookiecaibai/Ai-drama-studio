@@ -48,5 +48,10 @@ class ShotRead(ShotBase):
     # 配音同理：走 GET /api/v1/shots/{id}/audio
     audio_path: str | None = None
     audio_error: str | None = None
+    # 动态片段（图生视频）：不为空表示这个镜头的画面**会动**，
+    # 可通过 GET /api/v1/shots/{id}/clip 预览。
+    # 为空时合成环节会用静态图 —— 所以前端可以据此提示"这个镜头还是静图"。
+    clip_path: str | None = None
+    clip_error: str | None = None
     # 逐句台词：前端据此显示"谁说的、什么情绪"，也是多角色配音的依据
     lines: list[DialogueLineRead] = []

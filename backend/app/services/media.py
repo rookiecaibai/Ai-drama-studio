@@ -78,6 +78,14 @@ def episode_video_rel_path(episode_id: int) -> str:
     return f"videos/episodes/{episode_id}.mp4"
 
 
+def shot_clip_rel_path(shot_id: int) -> str:
+    """某一个镜头的动态片段存哪里（图生视频的产物）。
+
+    用镜头 id 命名：重新生成直接覆盖，天然幂等，也不留孤儿文件。
+    """
+    return f"clips/shots/{shot_id}.mp4"
+
+
 def line_audio_rel_path(line_id: int) -> str:
     """单句台词的音频存哪里。
 

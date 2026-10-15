@@ -20,6 +20,9 @@ export default function AuthMedia({
   className,
   cacheKey,
   controls = true,
+  autoPlay = false,
+  loop = false,
+  muted = false,
 }: {
   path: string
   kind: MediaKind
@@ -28,6 +31,10 @@ export default function AuthMedia({
   /** 变化时强制重新拉取（重新生成后 URL 没变但内容变了） */
   cacheKey?: string | number
   controls?: boolean
+  /** 以下三个用于"静音循环预览"（比如分镜表里的小动态片段），不适合带控件的场景 */
+  autoPlay?: boolean
+  loop?: boolean
+  muted?: boolean
 }) {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
@@ -63,5 +70,18 @@ export default function AuthMedia({
 
   if (kind === 'image') return <img src={url} alt={alt} className={className} />
   if (kind === 'audio') return <audio src={url} className={className} controls={controls} preload="none" />
-  return <video src={url} className={className} controls={controls} preload="metadata" />
+  return (
+    <video
+      src={url}
+      className={className}
+      controls={controls}
+      autoPlay={autoPlay}
+      loop={loop}
+      // muted 必须在 DOM 属性上也生效（React 的 muted prop 有时不会反映到属性上，
+      // 而浏览器的自动播放策略认的是属性），所以显式写一次。
+      muted={muted}
+      playsInline
+      preload={autoPlay ? 'auto' : 'metadata'}
+    />
+  )
 }

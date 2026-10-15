@@ -22,6 +22,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Episode, GenerationLog, GenerationTask, Shot
+from app.services.clip_service import generate_clips_for_episode
 from app.services.image_service import generate_images_for_episode
 from app.services.images.base import ImageProvider
 from app.services.llm.base import LLMProvider
@@ -29,6 +30,7 @@ from app.services.script_service import generate_episode_script
 from app.services.tts.base import TtsProvider
 from app.services.tts_service import generate_audio_for_episode
 from app.services.video_service import compose_episode_video
+from app.services.videos.base import VideoClipProvider
 
 logger = logging.getLogger(__name__)
 
@@ -326,3 +328,68 @@ def run_video_task(
         db.commit()
         _finish_log(db, log_id, "success")
         logger.info("任务 %s 合成完成: %s", task_id, rel_path)
+
+
+async def run_clip_task(
+    *,
+    task_id: int,
+    log_id: int,
+    provider: VideoClipProvider,
+    session_factory: sessionmaker[Session],
+    only_missing: bool = True,
+) -> None:
+    """后台为某一集的镜头批量生成动态片段（图生视频）。
+
+    和图片/配音任务同构：同一张任务表、同一套状态机、同一个轮询接口，只是 kind=clips。
+    区别是**它可能很慢**：视频模型通常几十秒到几分钟才出一条，
+    所以这里的进度（done/total）对用户尤其重要 —— 不然会以为卡死了。
+    """
+    with session_factory() as db:
+        task = db.get(GenerationTask, task_id)
+        if task is None:
+            logger.warning("任务 %s 不存在，跳过", task_id)
+            return
+
+        task.status = "running"
+        task.started_at = _now()
+        db.commit()
+        logger.info("任务 %s 开始生成动态片段（provider=%s）", task_id, provider.name)
+
+        def _on_total(total: int) -> None:
+            task.total = total
+            db.commit()
+
+        def _on_progress() -> None:
+            task.done += 1
+            db.commit()
+
+        try:
+            episode = db.get(Episode, task.episode_id)
+            planned, succeeded = await generate_clips_for_episode(
+                db,
+                episode=episode,
+                provider=provider,
+                only_missing=only_missing,
+                on_total=_on_total,
+                on_progress=_on_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            task.status = "failed"
+            task.error = str(exc)[:500]
+            task.finished_at = _now()
+            db.commit()
+            _finish_log(db, log_id, "failed")
+            logger.exception("任务 %s 失败", task_id)
+            return
+
+        if planned > 0 and succeeded == 0:
+            task.status = "failed"
+            task.error = f"{planned} 个动态片段全部生成失败，请查看各镜头的说明"
+            _finish_log(db, log_id, "failed")
+        else:
+            task.status = "succeeded"
+            _finish_log(db, log_id, "success")
+
+        task.finished_at = _now()
+        db.commit()
+        logger.info("任务 %s 结束：计划 %s 个，成功 %s 个", task_id, planned, succeeded)

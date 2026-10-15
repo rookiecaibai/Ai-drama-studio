@@ -150,6 +150,10 @@ class Shot(TimestampMixin, Base):
     # 配音同理：路径 + 失败原因（没有台词镜头会一直为空，前端显示"无需配音"）
     audio_path: Mapped[str | None] = mapped_column(String(255), default=None)
     audio_error: Mapped[str | None] = mapped_column(Text, default=None)
+    # 动态片段（图生视频）：把这张静图变成一段真的会动的短片。
+    # 为空时合成环节会退回用静态图 —— 也就是"没接图生视频也能出片"，向后兼容。
+    clip_path: Mapped[str | None] = mapped_column(String(255), default=None)
+    clip_error: Mapped[str | None] = mapped_column(Text, default=None)
 
     episode: Mapped[Episode] = relationship(back_populates="shots")
     # 这个镜头里的台词，一句一条。

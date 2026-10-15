@@ -40,16 +40,54 @@ AUDIO_RATE = 44100
 SPEAKER = "成片"
 
 
-def _build_clip_args(*, exe: str, shot: Shot, image: Path, audio: Path | None, out: Path) -> list[str]:
+def shot_source(shot: Shot) -> tuple[Path | None, bool]:
+    """这个镜头该用哪个素材：返回 (路径, 是否是动态片段)。
+
+    优先用动态片段（图生视频的产物），没有就退回静态图。
+    这个"优先 + 退回"的策略让整个功能**向后兼容**：
+    没接图生视频、或某个镜头的片段生成失败时，成片照样能出，只是那一格是静图。
+    """
+    if shot.clip_path and media.exists(shot.clip_path):
+        return media.absolute_path(shot.clip_path), True
+    if shot.image_path and media.exists(shot.image_path):
+        return media.absolute_path(shot.image_path), False
+    return None, False
+
+
+def _build_clip_args(
+    *, exe: str, shot: Shot, source: Path, is_video: bool, audio: Path | None, out: Path
+) -> list[str]:
+    """构造"把单个镜头变成一段标准化视频"的 ffmpeg 参数。
+
+    这里是整条流水线的收口：不管上游给的是静图还是 AI 生成的动态片段，
+    都要变成**尺寸/帧率/编码完全一致**的一小段，才能在最后一步直接 -c copy 拼接。
+    """
     settings = get_settings()
     width, height, fps = settings.video_width, settings.video_height, settings.video_fps
+    has_audio = audio is not None
 
-    args = [exe, "-y", "-loop", "1", "-i", str(image)]
-    if audio is not None:
+    args = [exe, "-y"]
+    if is_video and has_audio:
+        # 动态片段 + 配音：片段可能比台词短，循环播放凑够时长，
+        # 再靠 -shortest 在语音结束时停下（否则台词会被硬生生截断）。
+        args += ["-stream_loop", "-1", "-i", str(source)]
+    elif is_video:
+        # 动态片段、这段没配音：用它自己的长度，不循环
+        args += ["-i", str(source)]
+    else:
+        # 静图：-loop 1 定格
+        args += ["-loop", "1", "-i", str(source)]
+
+    if has_audio:
         args += ["-i", str(audio)]
     else:
         # 没有配音就补静音，保证每段都有音轨（否则拼接会错位）
         args += ["-f", "lavfi", "-i", f"anullsrc=r={AUDIO_RATE}:cl=stereo"]
+
+    # 显式指定"只要素材的画面 + 只要我们的配音"。
+    # 接入 AI 视频后这一步是必需的：有些图生视频模型会自带音轨，
+    # 不指定的话 ffmpeg 会挑错轨道，或拼出两条音轨。
+    args += ["-map", "0:v:0", "-map", "1:a:0"]
 
     # 等比缩放后居中加黑边，保证所有片段尺寸完全一致
     filter_v = (
@@ -77,10 +115,11 @@ def _build_clip_args(*, exe: str, shot: Shot, image: Path, audio: Path | None, o
         "2",
     ]
 
-    if audio is not None:
+    if has_audio:
         args += ["-shortest"]  # 长度跟着语音走，别把台词掐断
-    else:
+    elif not is_video:
         args += ["-t", f"{max(0.5, shot.duration_sec):.2f}"]
+    # 动态片段且没有配音：不指定时长，用它自己的长度
 
     args += ["-movflags", "+faststart", str(out)]
     return args
@@ -97,7 +136,8 @@ def compose_episode_video(
     if not shots:
         raise AppError("这一集还没有分镜，请先生成分镜", code="no_shots", status_code=400)
 
-    missing = [s.number for s in shots if not s.image_path or not media.exists(s.image_path)]
+    sources = [(shot, *shot_source(shot)) for shot in shots]
+    missing = [shot.number for shot, path, _ in sources if path is None]
     if missing:
         preview = "、".join(str(n) for n in missing[:8])
         raise AppError(
@@ -113,9 +153,10 @@ def compose_episode_video(
     if on_total is not None:
         on_total(len(shots))
 
+    animated = 0
     try:
         clips: list[Path] = []
-        for index, shot in enumerate(shots, start=1):
+        for index, (shot, source, is_video) in enumerate(sources, start=1):
             clip = work_dir / f"clip_{index:03d}.mp4"
             audio = (
                 media.absolute_path(shot.audio_path)
@@ -126,12 +167,14 @@ def compose_episode_video(
                 _build_clip_args(
                     exe=exe,
                     shot=shot,
-                    image=media.absolute_path(shot.image_path or ""),
+                    source=source,  # type: ignore[arg-type]
+                    is_video=is_video,
                     audio=audio,
                     out=clip,
                 )
             )
             clips.append(clip)
+            animated += 1 if is_video else 0
             if on_progress is not None:
                 on_progress()
 
@@ -168,9 +211,10 @@ def compose_episode_video(
 
     duration = probe_duration_sec(out_abs)
     logger.info(
-        "剧集 %s 成片完成：%s 个镜头，文件 %s，时长 %s 秒（%sx%s@%sfps）",
+        "剧集 %s 成片完成：%s 个镜头（其中 %s 个用了动态片段），文件 %s，时长 %s 秒（%sx%s@%sfps）",
         episode.id,
         len(clips),
+        animated,
         out_abs.name,
         f"{duration:.1f}" if duration else "未知",
         settings.video_width,

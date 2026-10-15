@@ -186,10 +186,33 @@ img.thumb {
   border: 1px solid var(--border);
   display: block;
 }
+/* 动态片段的小预览（静音循环播放，让"画面在动"一眼可见） */
+.clip-cell { position: relative; display: inline-block; }
+video.thumb {
+  width: 120px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+  background: #000;
+}
+.clip-badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(40, 160, 90, 0.9);
+  color: #fff;
+}
+.clip-badge.static {
+  background: rgba(120, 120, 130, 0.85);
+}
 .image-error {
   color: var(--danger);
   font-size: 12px;
   cursor: help;
+  display: block;
 }
 
 /* 分镜表里的配音播放器 */

@@ -15,6 +15,12 @@ import os
 os.environ.setdefault("AUTO_CREATE_TABLES", "false")
 os.environ.setdefault("LLM_PROVIDER", "mock")
 os.environ.setdefault("IMAGE_PROVIDER", "mock")
+os.environ.setdefault("TTS_PROVIDER", "mock")
+# 图生视频默认关掉，由用例自己用依赖覆盖注入假 Provider。
+# **这一条是踩坑加的**：测试最初没固定它，结果读到了开发机 .env 里的
+# VIDEO_CLIP_PROVIDER=mock，让"未启用时应报 400"的用例变成了 202 ——
+# 教训：**测试结果不能依赖开发机的 .env**，所有外部能力都必须在测试里固定死。
+os.environ.setdefault("VIDEO_CLIP_PROVIDER", "none")
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./_test_placeholder.db")
 # 测试生成的图片写到独立目录，跑完删掉，不污染仓库
 os.environ.setdefault("MEDIA_ROOT", "./_test_media")

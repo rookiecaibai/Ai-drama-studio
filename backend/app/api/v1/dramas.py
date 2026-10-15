@@ -110,6 +110,14 @@ def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
             .where(Episode.drama_id == drama.id, DialogueLine.audio_path.is_not(None))
         )
     )
+    # 动态片段（图生视频的产物）同理 —— 视频文件大，更不能不删
+    clip_paths = list(
+        db.scalars(
+            select(Shot.clip_path)
+            .join(Episode, Shot.episode_id == Episode.id)
+            .where(Episode.drama_id == drama.id, Shot.clip_path.is_not(None))
+        )
+    )
 
     db.delete(drama)  # cascade 会连带删掉剧集和镜头
     db.commit()
@@ -121,6 +129,8 @@ def delete_drama(drama_id: int, db: DbSession, user: CurrentUser) -> None:
         media.delete(video_path)
     for line_audio_path in line_audio_paths:
         media.delete(line_audio_path)
+    for clip_path in clip_paths:
+        media.delete(clip_path)
 
 
 @router.get("/{drama_id}/characters", response_model=list[CharacterRead], summary="这部剧的角色表")

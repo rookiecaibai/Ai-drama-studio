@@ -28,6 +28,7 @@ _KIND_LABEL = {
     "shots": "生成分镜",
     "synopsis": "生成大纲",
     "images": "生成画面",
+    "clips": "生成动态镜头",
     "audio": "生成配音",
     "video": "合成视频",
     "cast": "分析角色",

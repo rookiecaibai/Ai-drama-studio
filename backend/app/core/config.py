@@ -121,6 +121,33 @@ class Settings(BaseSettings):
     video_preset: str = "veryfast"
     daily_video_limit: int = 10
 
+    # ---------- 图生视频（让画面真的动起来） ----------
+    # 背景：不做这一步，成片就是"每张图定格 + 配音"的幻灯片式拼接 —— 画面完全静止。
+    # none:          不生成动态片段（成片仍用静态图，即原来的行为，向后兼容）
+    # mock:          本地 ffmpeg 做 Ken Burns 式缓慢推拉摇移 —— 免费、不联网，
+    #                画面**确实会动**（是运镜不是真动作），用来跑通链路和演示
+    # openai_compat: 真调图生视频模型（智谱 cogvideox-3 等：异步提交 + 轮询取结果）
+    video_clip_provider: str = "none"
+    # 留空则复用 IMAGE_API_KEY —— 智谱的文生图和图生视频是同一个 Key
+    video_api_key: str = ""
+    video_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    video_model: str = "cogvideox-3"
+    # 竖屏尺寸要和成片一致，否则合成时要补黑边。
+    # 注意各模型支持的枚举不同：cogvideox-3 支持 720x1280；cogvideox-flash 只支持 960x1280
+    video_size: str = "720x1280"
+    video_quality: str = "speed"  # speed=速度优先 / quality=质量优先
+    video_clip_seconds: int = 5  # 每个镜头生成的动态片段时长
+    video_timeout_sec: float = 60.0  # 单次 HTTP 请求超时
+    video_poll_interval_sec: float = 6.0  # 轮询异步结果的间隔
+    video_poll_timeout_sec: float = 900.0  # 单个片段最长等多久（视频生成很慢）
+
+    # 每用户每天最多生成多少个动态镜头（视频模型比图片贵得多，单独设限）
+    daily_clip_limit: int = 30
+
+    # 视频厂商的私有参数透传（JSON 字符串），格式见 IMAGE_EXTRA_PARAMS 的说明。
+    # 例：VIDEO_EXTRA_PARAMS={"watermark_enabled": false}
+    video_extra_params: str = ""
+
     # 启动时把上次运行遗留的"假进行中"任务标记为失败
     # （见 task_service.mark_interrupted_tasks）。测试里关掉：
     # 测试用临时库，任务状态由用例自己控制。

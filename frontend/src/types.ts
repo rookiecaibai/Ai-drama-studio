@@ -58,6 +58,10 @@ export interface Shot {
   audio_path: string | null
   /** 配音生成失败的原因 */
   audio_error: string | null
+  /** 有值表示这个镜头有**会动**的动态片段（图生视频）；为 null 时成片用静态图 */
+  clip_path: string | null
+  /** 动态片段生成失败的原因 */
+  clip_error: string | null
 }
 
 export interface EpisodeDetail extends Episode {
@@ -67,7 +71,7 @@ export interface EpisodeDetail extends Episode {
 export interface GenerationTask {
   id: number
   episode_id: number
-  kind: 'shots' | 'images' | 'audio' | 'video'
+  kind: 'shots' | 'images' | 'clips' | 'audio' | 'video' | 'cast'
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   provider: string
   shot_count: number

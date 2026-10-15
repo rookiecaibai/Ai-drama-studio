@@ -26,6 +26,8 @@ from app.services.llm.factory import build_provider
 from app.services.quota import QuotaService
 from app.services.tts.base import TtsProvider
 from app.services.tts.factory import build_tts_provider
+from app.services.videos.base import VideoClipProvider
+from app.services.videos.factory import build_clip_provider
 
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -60,6 +62,7 @@ def get_quota_service() -> QuotaService:
             "images": settings.daily_image_limit,
             "audio": settings.daily_audio_limit,
             "video": settings.daily_video_limit,
+            "clips": settings.daily_clip_limit,
         }
     )
 
@@ -81,6 +84,18 @@ def get_tts_provider() -> TtsProvider:
 
 
 TtsProviderDep = Annotated[TtsProvider, Depends(get_tts_provider)]
+
+
+def get_clip_provider() -> VideoClipProvider | None:
+    """图生视频 Provider。
+
+    返回 None 表示"不生成动态片段"（配置成 none）—— 这不是异常，
+    而是一条合法的运行模式：成片会用静态图，也就是我们最初的行为。
+    """
+    return build_clip_provider(get_settings())
+
+
+ClipProviderDep = Annotated["VideoClipProvider | None", Depends(get_clip_provider)]
 
 
 @lru_cache(maxsize=1)

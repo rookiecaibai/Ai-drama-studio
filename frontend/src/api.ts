@@ -156,6 +156,19 @@ export const api = {
   /** 镜头配音的地址（同样需要带 Authorization 头） */
   shotAudioPath: (shotId: number) => `/api/v1/shots/${shotId}/audio`,
 
+  /**
+   * 为每个镜头的画面生成动态片段（图生视频）。返回任务。
+   * 不做这一步的话，成片就是"每张图定格 + 配音"的幻灯片 —— 画面完全静止。
+   */
+  generateClips: (episodeId: number, onlyMissing = true) =>
+    request<GenerationTask>(`/api/v1/episodes/${episodeId}/clips`, {
+      method: 'POST',
+      body: JSON.stringify({ only_missing: onlyMissing }),
+    }),
+
+  /** 镜头动态片段的地址（预览用，同样需要带 Authorization 头） */
+  shotClipPath: (shotId: number) => `/api/v1/shots/${shotId}/clip`,
+
   /** 把这一集的画面 + 配音合成成竖屏 MP4（本地 ffmpeg）。返回任务。 */
   generateVideo: (episodeId: number) =>
     request<GenerationTask>(`/api/v1/episodes/${episodeId}/video`, { method: 'POST' }),

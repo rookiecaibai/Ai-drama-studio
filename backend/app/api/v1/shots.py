@@ -61,3 +61,24 @@ def get_shot_audio(shot_id: int, db: DbSession, user: CurrentUser) -> FileRespon
         media_type=media.content_type_for(shot.audio_path),
         headers={"Cache-Control": "no-cache"},
     )
+
+
+@router.get("/{shot_id}/clip", summary="预览镜头动态片段（需要登录，且只能读自己的）")
+def get_shot_clip(shot_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+    """图生视频产出的动态片段。
+
+    单独提供这个接口的理由：合成成片要等所有镜头就绪，
+    而用户想"先看看这一个镜头动起来是什么样"—— 预览比看成品快得多，
+    尤其是真实视频模型很慢、很贵的时候，快速预览能省下大量试错成本。
+    """
+    shot = _get_owned_shot(db, shot_id, user)
+
+    if not shot.clip_path or not media.exists(shot.clip_path):
+        raise NotFoundError("这个镜头还没有动态片段")
+
+    return FileResponse(
+        media.absolute_path(shot.clip_path),
+        media_type=media.content_type_for(shot.clip_path),
+        # 同样是按镜头 id 固定路径、重新生成会覆盖，所以别缓存
+        headers={"Cache-Control": "no-cache", "Accept-Ranges": "none"},
+    )
