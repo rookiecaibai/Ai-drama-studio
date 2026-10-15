@@ -342,3 +342,72 @@ def test_mock_tts_honours_speed_and_voice():
 
     assert len(fast) < len(slow), "语速快 -> 音频更短"
     assert fast != other_voice, "换了音色应该有区别"
+
+
+# ───────────────────────── 裸台词（没写说话人）的回归测试 ─────────────────────────
+
+
+def test_bare_dialogue_line_gets_speaker_from_context(client):
+    """没写说话人的台词，必须由上下文推断出说话人，而不是默认塞给旁白（女声）。
+
+    这是真实 bug 的回归测试：DeepSeek 有时会生成不带"角色名："前缀的台词，
+    而"我找了你好久"从剧情看是男主说的，必须配男声。
+    """
+    shots = [
+        {
+            "shot_type": "中景",
+            "camera": "固定",
+            "description": "陈默走近林晚，语气压抑",
+            "dialogue": "我找了你好久。",  # 裸台词，没有说话人
+            "duration_sec": 4,
+            "image_prompt": "x",
+        }
+    ]
+    tts = RecordingTts()
+    llm = ScriptedLLM(
+        shots=shots,
+        characters=[
+            {"name": "陈默", "gender": "male", "age_group": "young", "personality": "沉稳寡言", "role": "主角"}
+        ],
+        # 情绪分析这一步，模型结合上下文推断出是陈默在说话
+        lines=[
+            {"shot": 1, "line": 0, "speaker": "陈默", "emotion": "压抑", "intensity": 0.7, "pace": "normal"}
+        ],
+    )
+    _, episode = _prepare(client, llm, tts)
+    assert _run_audio(client, episode["id"])["status"] == "succeeded"
+
+    call = tts.calls[0]
+    assert call["text"] == "我找了你好久。"
+    assert call["voice"] == "xiaochen", f"男主台词不该用女声，实际 {call['voice']}"
+
+
+def test_bare_line_falls_back_to_previous_speaker(client):
+    """模型也没推断出说话人时，裸台词延续同一镜头里上一句的说话人。"""
+    shots = [
+        {
+            "shot_type": "中景",
+            "camera": "固定",
+            "description": "两人低声对话",
+            "dialogue": "陈默：先跟我走。\n别回头。",  # 第二句是裸台词
+            "duration_sec": 5,
+            "image_prompt": "x",
+        }
+    ]
+    tts = RecordingTts()
+    llm = ScriptedLLM(
+        shots=shots,
+        characters=[
+            {"name": "陈默", "gender": "male", "age_group": "young", "personality": "沉稳", "role": "主角"}
+        ],
+        # 模型没给第二句推断说话人（speaker 留空）
+        lines=[
+            {"shot": 1, "line": 0, "speaker": "陈默", "emotion": "平静", "intensity": 0.5, "pace": "normal"},
+            {"shot": 1, "line": 1, "speaker": "", "emotion": "平静", "intensity": 0.5, "pace": "normal"},
+        ],
+    )
+    _, episode = _prepare(client, llm, tts)
+    assert _run_audio(client, episode["id"])["status"] == "succeeded"
+
+    by_text = {call["text"]: call for call in tts.calls}
+    assert by_text["别回头。"]["voice"] == "xiaochen", "裸台词应延续上一句（陈默）的音色"

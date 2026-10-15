@@ -14,6 +14,7 @@ GLM-TTS 会根据台词内容自己判断情绪，但它看到的是**孤立的�
 """
 
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -69,8 +70,11 @@ EMOTION_SYSTEM_PROMPT = """你是短剧的配音导演。请通读这一集的�
 要求：
 1. `shot` 是镜头序号（从 1 开始），`line` 是该镜头里第几句台词（从 0 开始）。
    **必须和输入里的编号严格对应，一句都不能漏。**
-2. 旁白一般是平静或低沉，除非情节本身很紧张。
-3. 同一句话在不同处境下配法不同，请按剧情给，不要一律"平静"。""".strip()
+2. **speaker 是关键字段**：输入里如果有句子被标成「待推断说话人」，
+   你必须结合剧情、前面的对话、角色性格判断它最可能是谁在说，
+   把真实角色名填进 speaker；只有确定是旁白/画面描述时才写「旁白」。
+3. 旁白一般是平静或低沉，除非情节本身很紧张。
+4. 同一句话在不同处境下配法不同，请按剧情给，不要一律"平静"。""".strip()
 
 
 def speed_for(base_speed: float, *, emotion: str, pace: str, intensity: float) -> float:
@@ -115,8 +119,9 @@ def _build_user_prompt(
         context = (shot.description or "").strip().replace("\n", " ")
         parts.append(f"\n镜头 {shot.number}（{shot.shot_type}｜{context[:70]}）")
         for index, line in enumerate(lines):
-            cue = f"（提示：{line.cue}）" if line.cue else ""
-            parts.append(f"  line {index}｜{line.speaker or '旁白'}{cue}：{line.text}")
+            speaker_label = line.speaker if line.speaker else "（待推断说话人）"
+            cue_label = f" 提示[{line.cue}]" if line.cue else ""
+            parts.append(f"  line {index}｜{speaker_label}{cue_label}｜{line.text}")
     return "\n".join(parts)
 
 
@@ -185,6 +190,14 @@ async def analyze_emotions(
             pace = "normal"
 
         base_speed = base_speed_by_character.get(line.character_id or -1, 1.0)
+
+        # 补全说话人：裸台词（line.speaker 为空）的说话人由模型结合上下文推断。
+        # 这是"男主台词被配成女声"的修复关键 —— 不能默认塞给旁白。
+        inferred = re.sub(r"[（(【\[].*$", "", str(item.get("speaker", "")).strip()).strip()[:60]
+        if inferred in ("待推断说话人", "未知", "无", "旁白或画外音"):
+            inferred = ""
+        if inferred and not line.speaker:
+            line.speaker = inferred
 
         line.emotion = emotion
         line.intensity = intensity

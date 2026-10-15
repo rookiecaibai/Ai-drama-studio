@@ -148,13 +148,17 @@ class MockProvider(LLMProvider):
                 shot_number = int(shot_match.group(1))
                 continue
 
-            line_match = re.match(r"\s*line\s+(\d+)｜(.+?)：(.*)$", raw)
+            line_match = re.match(r"\s*line\s+(\d+)｜(.+?)｜(.*)$", raw)
             if not line_match or not shot_number:
                 continue
 
             index = int(line_match.group(1))
-            speaker = line_match.group(2).strip()
+            speaker_raw = line_match.group(2).strip()
             text = line_match.group(3).strip()
+            # 去掉 "提示[xxx]" 尾巴；"待推断" 表示 mock 猜不出，交给 fallback（延续上一句/旁白）
+            speaker = re.sub(r"提示\[[^\]]*\]", "", speaker_raw).strip()
+            if "待推断" in speaker:
+                speaker = ""
             emotion, intensity, pace = MockProvider._guess(speaker, text)
             results.append(
                 {

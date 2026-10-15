@@ -31,7 +31,7 @@ from app.services.dialogue import parse_dialogue
 from app.services.emotion_service import analyze_emotions
 from app.services.llm.base import LLMProvider
 from app.services.tts.base import TtsProvider
-from app.services.voice_profile import DEFAULT_VOICE, is_narrator, profile_for
+from app.services.voice_profile import DEFAULT_VOICE, profile_for
 
 logger = logging.getLogger(__name__)
 
@@ -102,23 +102,58 @@ def load_lines_by_shot(db: Session, shot_ids: list[int]) -> dict[int, list[Dialo
 def assign_characters(
     db: Session, *, drama_id: int, lines: list[DialogueLine]
 ) -> list[Character]:
-    """把每一句台词对应到角色（按说话人名字匹配）。"""
+    """把每一句台词对应到角色（按说话人名字匹配）。
+
+    注意：**没有说话人的句子这里直接跳过**，不再默认塞给旁白 ——
+    那正是"男主台词被配成女声"的 bug 来源。裸台词的说话人由 resolve_speakers 补全。
+    """
     characters = list(
         db.scalars(select(Character).where(Character.drama_id == drama_id).order_by(Character.id))
     )
     by_name = {character.name: character for character in characters}
-    narrator = next((c for c in characters if is_narrator(c.name)), None)
 
     for line in lines:
-        if line.character_id:
+        if line.character_id or not line.speaker:
             continue
         character = by_name.get(line.speaker)
-        if character is None and not line.speaker:
-            character = narrator  # 没写说话人的句子按旁白处理
         if character is not None:
             line.character_id = character.id
     db.commit()
     return characters
+
+
+#: 括号提示里这些词表示"这是旁白/画外音"，不是某个角色在说话
+NARRATOR_CUES = ("旁白", "画外音", "解说", "字幕")
+
+
+def resolve_speakers(
+    db: Session, shots: list[Shot], lines_by_shot: dict[int, list[DialogueLine]]
+) -> None:
+    """补全"没写说话人"的台词（裸台词）。
+
+    优先级：
+      1. 情绪分析时 LLM 已经推断出的说话人（已写进 line.speaker，这里直接跳过）；
+      2. 括号提示是旁白/画外音 -> 旁白；
+      3. 延续同一镜头里上一句的说话人（对话里省略称呼是常见写法）；
+      4. 实在没有线索 -> 旁白。
+
+    第 3、4 条只是兜底 —— 真正能把"我找了你好久"认出是男主说的，
+    靠的是情绪分析那一步的**上下文推断**，而不是这里的机械规则。
+    """
+    for shot in shots:
+        previous: str | None = None
+        for line in sorted(lines_by_shot.get(shot.id, []), key=lambda row: row.index):
+            if line.speaker:
+                previous = line.speaker
+                continue
+            if line.cue and any(token in line.cue for token in NARRATOR_CUES):
+                line.speaker = "旁白"
+            elif previous:
+                line.speaker = previous
+            else:
+                line.speaker = "旁白"
+            previous = line.speaker
+    db.commit()
 
 
 def _profile_of(character: Character | None):
@@ -237,6 +272,13 @@ async def generate_audio_for_episode(
             db.rollback()
             # 回滚会让内存里的对象过期，重新读一次台词（见 load_lines_by_shot 的说明）
             lines_by_shot = load_lines_by_shot(db, [shot.id for shot in shots])
+
+    # ④ 补全裸台词的说话人（LLM 推断 > 旁白提示 > 延续上一句 > 旁白），
+    #    然后**再分配一次角色** —— 因为刚才可能有一批台词还没有说话人，
+    #    现在补全了，才能对上各自角色（否则男主台词会落回女性旁白音色）。
+    resolve_speakers(db, shots, lines_by_shot)
+    all_lines = [line for lines in lines_by_shot.values() for line in lines]
+    assign_characters(db, drama_id=episode.drama_id, lines=all_lines)
 
     with_lines = [shot for shot in shots if lines_by_shot.get(shot.id)]
     targets = [shot for shot in with_lines if not (only_missing and shot.audio_path)]
