@@ -196,8 +196,22 @@ class OpenAICompatVideoClipProvider(VideoClipProvider):
                     f"{self._base_url}/async-result/{task_id}", headers=self._headers
                 )
                 resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if 400 <= status < 500:
+                    # **4xx 是永久性错误，必须立刻失败** —— 实测踩过这个坑：
+                    # 任务 id 失效时接口返回 400，而"网络抖动就重试"的逻辑
+                    # 会把一次 400 变成"傻等 900 秒才超时"，用户以为卡死了。
+                    raise LLMError(
+                        f"查询图生视频结果失败（HTTP {status}，任务 {task_id}）："
+                        f"{exc.response.text[:200]}",
+                        code="video_task_not_found",
+                    ) from exc
+                # 5xx 才可能是服务端临时故障，重试
+                logger.warning("轮询图生视频结果失败（服务端 %s，继续重试）: %s", status, exc)
+                continue
             except httpx.HTTPError as exc:
-                # 轮询中途的网络抖动不该直接判失败 —— 记一条日志继续等
+                # 网络层抖动（超时、连接中断）才是真的可以重试
                 logger.warning("轮询图生视频结果失败（继续重试）: %s", exc)
                 continue
 

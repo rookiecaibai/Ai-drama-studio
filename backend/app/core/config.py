@@ -143,7 +143,7 @@ class Settings(BaseSettings):
     video_send_duration: bool = True
     video_timeout_sec: float = 60.0  # 单次 HTTP 请求超时
     video_poll_interval_sec: float = 6.0  # 轮询异步结果的间隔
-    video_poll_timeout_sec: float = 900.0  # 单个片段最长等多久（视频生成很慢）
+    video_poll_timeout_sec: float = 360.0  # 单个片段最长等多久（5 秒的片段不该等超过 6 分钟）
 
     # 每用户每天最多生成多少个动态镜头（视频模型比图片贵得多，单独设限）
     daily_clip_limit: int = 30

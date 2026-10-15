@@ -66,10 +66,23 @@ def _build_clip_args(
     width, height, fps = settings.video_width, settings.video_height, settings.video_fps
     has_audio = audio is not None
 
+    # ── 先算出这一段的**确切时长** ──
+    #
+    # 为什么必须显式算：原来的写法是"无限循环视频 + -shortest，靠最短流自动停"。
+    # 实测那个组合**不收敛** —— 接入真实图生视频后，一个镜头编了 15 分钟还在烧 CPU
+    #（CPU 时间 887 秒、内存 811MB），因为 -shortest 面对 -stream_loop -1 的无限输入
+    # 并不会可靠地停下来。改成显式 -t 之后，编码时长是确定的，不可能无限编下去。
+    if has_audio:
+        duration = probe_duration_sec(audio) or max(0.5, shot.duration_sec)
+    elif is_video:
+        # 没配音的动态片段：用片段自己的长度
+        duration = probe_duration_sec(source) or max(0.5, shot.duration_sec)
+    else:
+        duration = max(0.5, shot.duration_sec)
+
     args = [exe, "-y"]
     if is_video and has_audio:
-        # 动态片段 + 配音：片段可能比台词短，循环播放凑够时长，
-        # 再靠 -shortest 在语音结束时停下（否则台词会被硬生生截断）。
+        # 动态片段 + 配音：片段可能比台词短，循环播放凑够时长（时长由下面的 -t 限定）
         args += ["-stream_loop", "-1", "-i", str(source)]
     elif is_video:
         # 动态片段、这段没配音：用它自己的长度，不循环
@@ -113,13 +126,10 @@ def _build_clip_args(
         str(AUDIO_RATE),
         "-ac",
         "2",
+        # 显式限长（见上面的说明）。放在输出侧：限制输出时长，而不是限制输入读取。
+        "-t",
+        f"{duration:.3f}",
     ]
-
-    if has_audio:
-        args += ["-shortest"]  # 长度跟着语音走，别把台词掐断
-    elif not is_video:
-        args += ["-t", f"{max(0.5, shot.duration_sec):.2f}"]
-    # 动态片段且没有配音：不指定时长，用它自己的长度
 
     args += ["-movflags", "+faststart", str(out)]
     return args

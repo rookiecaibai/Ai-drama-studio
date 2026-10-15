@@ -545,6 +545,73 @@ def test_duration_can_be_omitted_for_models_that_do_not_support_it(tmp_path):
     assert captured[0]["size"] == "1080x1920"
 
 
+def test_poll_4xx_fails_fast_instead_of_retrying(tmp_path):
+    """轮询返回 4xx 必须**立刻**失败，不能当成网络抖动傻等。
+
+    这是实测踩出来的 bug：任务 id 失效时智谱的 async-result 接口返回 400，
+    而当时"出错就重试"的逻辑让一个镜头**白等了 900 秒**才超时 ——
+    用户看到的是"卡住了"，排查起来也毫无线索。
+    4xx 是永久性错误（重试一万次也还是 400），5xx 和网络抖动才值得重试。
+    """
+    import http.server
+    import json as jsonlib
+    import socketserver
+    import threading
+    import time
+
+    from app.core.errors import LLMError
+    from app.services.videos.openai_compat import OpenAICompatVideoClipProvider
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass
+
+        def _send(self, code, payload):
+            body = jsonlib.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(length)
+            self._send(200, {"id": "gone-task", "task_status": "PROCESSING"})
+
+        def do_GET(self):
+            # 提交成功，但轮询一律 400（模拟任务已失效）
+            self._send(400, {"error": {"code": "1210", "message": "任务不存在"}})
+
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    image_path = tmp_path / "still.png"
+    _write_test_image(image_path)
+
+    try:
+        provider = OpenAICompatVideoClipProvider(
+            api_key="k",
+            base_url=f"http://127.0.0.1:{server.server_address[1]}",
+            model="cogvideox-2",
+            size="1080x1920",
+            poll_interval=0.1,
+            poll_timeout=60,  # 故意给很长的超时，验证"不是因为超时才退出"
+        )
+        started = time.monotonic()
+        with pytest.raises(LLMError) as exc:
+            asyncio.run(provider.generate(image_path=image_path, prompt="x"))
+        elapsed = time.monotonic() - started
+    finally:
+        server.shutdown()
+
+    assert "400" in str(exc.value)
+    assert elapsed < 5, f"4xx 应该立刻失败，实际等了 {elapsed:.1f} 秒"
+
+
 def test_video_provider_factory(tmp_path):
     """工厂：none -> None；mock -> 本地运镜；openai_compat -> 真实适配器。"""
     from app.core.config import Settings
