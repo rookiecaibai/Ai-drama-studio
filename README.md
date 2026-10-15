@@ -204,6 +204,39 @@ $env:AUTO_CREATE_TABLES = "false"     # 表结构由 alembic upgrade head 管理
 `ALTER USER 'root'@'localhost' IDENTIFIED BY '一个强密码';`
 （我们的应用只用 `drama` 这个最小权限账号，不受影响。）
 
+## 用 Docker 一键起（api + MySQL + Nginx）
+
+> ⚠️ **这套配置尚未实机验证过**（开发机没装 Docker）。已做过 45 项静态检查，
+> 实机步骤和排查表见 [docs/05-部署验证清单.md](docs/05-部署验证清单.md)。
+
+```bash
+cd backend                 # 必须在 backend 目录下执行（compose 的相对路径以它为准）
+docker compose up --build  # 首次会构建镜像（装 pip/npm 依赖）
+```
+
+然后打开 **<http://localhost:8080>**（走的是 Nginx 的 8080，不是后端的 8000）。
+
+**几个关键设计**：
+
+| 点 | 说明 |
+|---|---|
+| 配置从哪来 | compose 会**自动读取 `backend/.env`** 做变量替换，所以密钥不用写进 compose 文件（那样会跟着 Git 泄露） |
+| 前端怎么进镜像 | 多阶段构建：node 阶段 `npm run build` → 只把 `dist` 拷进 python 镜像（node 不会留在成品里） |
+| 生成的媒体存哪 | 挂在宿主机的 `backend/media/`，**容器重建不会丢** |
+| 容器里要装 ffmpeg 吗 | **不用**：requirements 里的 `imageio-ffmpeg` 自带含 libx264 的静态构建 |
+| 谁能从公网访问后端 | 只有 Nginx：api 用 `expose` 而非 `ports`，8000 端口不出容器网络 |
+| 表结构怎么建 | 容器入口自动跑 `alembic upgrade head`（幂等），应用侧 `AUTO_CREATE_TABLES=false` |
+
+```bash
+docker compose ps                        # 看健康状态
+docker compose logs -f api               # 看后端日志
+docker compose exec db mysql -udrama -p... ai_drama -e "show tables;"
+docker compose down                      # 停止（媒体文件保留）
+docker compose down -v                   # 停止并删库（数据全清）
+```
+
+---
+
 ## 前端（Vite + React + TypeScript）
 
 前端代码在 `frontend/`，构建产物由 FastAPI 直接托管（同源部署，没有跨域问题）。
@@ -227,37 +260,61 @@ npm run build
 ```
 backend/
 ├── app/
-│   ├── main.py              # 应用组装（工厂函数 + lifespan）
-│   ├── core/                # 配置、日志、统一错误
+│   ├── main.py              # 应用组装（工厂函数 + lifespan + 前端托管）
+│   ├── core/                # 配置、日志、统一错误、JWT、限流
 │   ├── db/                  # ORM 基类、引擎/会话、数据模型
 │   ├── schemas/             # 对外契约（Pydantic），与 ORM 模型分离
 │   ├── api/                 # 路由层（薄）+ 依赖注入
-│   └── services/            # 业务逻辑 + 大模型 Provider 抽象
-├── tests/                   # pytest（用假模型 + 临时库，不联网）
-├── alembic/                 # 数据库迁移脚本（versions/ 是版本历史）
-├── Dockerfile
-├── docker-compose.yml
-└── nginx/nginx.conf
+│   └── services/            # 业务逻辑层
+│       ├── dialogue.py      # 台词解析：拆出「谁说的」和「说什么」
+│       ├── cast_service.py  # 角色表（AI 分析 + 人工可改）
+│       ├── emotion_service.py   # 逐句情绪 → 语速
+│       ├── voice_profile.py # 音色矩阵（性别/年龄 → 音色+音高+语速）
+│       ├── tts_service.py   # 多角色逐句配音
+│       ├── clip_service.py  # 图生视频（逐镜头动态片段）
+│       ├── video_service.py # ffmpeg 合成（优先动态片段，退回静图）
+│       └── llm/ images/ tts/ videos/   # 四种模态的 Provider 抽象（各含 mock）
+├── tests/                   # pytest 163 个用例（用假模型 + 临时库，不联网）
+├── alembic/                 # 数据库迁移脚本（versions/ 是版本历史，9 条）
+├── Dockerfile               # 多阶段构建：node 构建前端 → python 运行时
+├── docker-compose.yml       # api + MySQL + nginx 一键起
+└── nginx/nginx.conf         # 反向代理 + 媒体流 + 前端兜底
 
 frontend/                    # Vite + React + TS 前端
-├── src/                     # api 客户端、登录页、工作区、类型定义
+├── src/                     # api 客户端、登录页、工作区、AuthMedia、类型定义
 └── dist/                    # 构建产物（gitignore，由 FastAPI 托管）
+
+.dockerignore                # ⚠️ 在仓库根：防止 backend/.env 被构建进镜像
 ```
 
 ## 当前状态（诚实清单）
 
-- ✅ 后端接口 + 测试：**已在本机实测通过（81 passed）**
-- ✅ **用户可控的每集大纲**：自己写 / PATCH 修改 / AI 依据「标题 + 前几集」起草（只给建议不写库），分镜严格基于该大纲生成
-- ✅ **文生图**：把每个镜头的英文提示词变成画面，异步任务 + 进度，图片存本地并由**带鉴权的接口**提供
-- ✅ **TTS 配音**：只给有台词的镜头配音，mock 产出**真的能播放**的 WAV，真实厂商走 OpenAI 兼容 `/audio/speech`
-- ✅ **视频合成**：本地 ffmpeg 把「画面 + 配音」按镜头顺序拼成竖屏 MP4（720x1280），异步任务 + 进度，带鉴权播放
-- ✅ JWT 鉴权 + 资源归属：注册/登录/me + 用户只能操作自己的短剧与媒体，**已实机验证**
-- ✅ Alembic 迁移：8 条迁移链，`alembic check` 零差异，有集成测试守护
-- ✅ 调用配额/限流：**按用途分别设限**（分镜/大纲/画面/配音/视频）+ 调用流水（带 `kind`）+ 登录防爆破限流
-- ✅ 生成任务异步化：一张任务表支持多种任务（`kind=shots/images/audio/video`），202 + 轮询 + 进度
-- ✅ **真实大模型已接通**：DeepSeek（`LLM_PROVIDER=openai_compat`），实测大纲 4 秒、分镜 8 秒
-- ✅ 前端：Vite + React + TS，构建产物由 FastAPI 托管（实机验证）
-- ✅ MySQL 生产路径：本机 MySQL 9.6 实测通过（账号已收紧到仅本机登录）
-- ✅ 已推送 GitHub 并跑通 CI（最近一次推送待网络恢复）
-- ⚠️ 文生图 / TTS 的真实厂商未实测：适配器契约已用**本地假厂商服务**全部验证并固化成测试，接真实 Key 后即可出真图/真声
-- ⚠️ Docker / docker-compose / Nginx：配置已就绪，整链路仍需装 Docker 后验证
+**已实测通过：**
+
+- ✅ 后端接口 + 测试：**163 个用例全绿**，CI 自动跑
+- ✅ **用户可控的每集大纲**：自己写 / PATCH 修改 / AI 依据「标题 + 前几集」起草（只给建议不写库）
+- ✅ **文生图**：镜头提示词 → 画面，异步任务 + 进度，图片由**带鉴权的接口**提供（真实智谱已出图）
+- ✅ **多角色情绪配音**：台词解析（角色名绝不被念出）→ 角色表 → 逐句情绪 → 各自音色/音高/语速合成 → 拼接
+  （真实 GLM-TTS 已出真声；情感标签不能塞进文本这点用**语音转文字反证**过）
+- ✅ **图生视频**：静图 → 真的会动的短片（真实 CogVideoX-2 已出片，5.1 秒/1080x1920）
+  - 三种模式：`none` 退回静图 / `mock` 本地运镜（免费且画面真会动）/ `openai_compat` 真模型
+  - **像素级断言**守护"画面真的在动"：静态图 0.0% 像素变化，接入后 45%~64%
+- ✅ **视频合成**：优先用动态片段、没有就退回静图，逐段标准化后拼接成竖屏 MP4（720x1280）
+- ✅ JWT 鉴权 + 资源归属：用户只能操作自己的短剧与媒体
+- ✅ Alembic 迁移：**9 条**迁移链，`alembic check` 零差异，有集成测试守护
+- ✅ 调用配额/限流：**按用途分别设限**（分镜/大纲/画面/动态镜头/配音/成片）+ 调用流水 + 登录防爆破
+- ✅ 生成任务异步化：一张任务表支持**五种任务**（`kind=shots/images/clips/audio/video`），202 + 轮询 + 进度
+- ✅ 服务重启后自动把卡住的"假进行中"任务标记为失败
+- ✅ 真实大模型已接通：DeepSeek（文本）+ 智谱（图片/配音/视频）
+- ✅ 前端：Vite + React + TS，构建产物由 FastAPI 托管；分镜表可直接循环预览动态片段
+- ✅ MySQL 生产路径：本机 MySQL 9.6 实测通过（utf8mb4 生效）
+
+**还没做 / 需要注意：**
+
+- ⚠️ **Docker / Nginx 整链路未实机验证**：配置已按新功能补齐（媒体卷、50 个环境变量、
+  `location /` 兜底、多阶段构建、`.dockerignore`），并跑了 **45 项静态检查**；
+  但镜像能否构建、容器能否起来必须装 Docker Desktop 后按
+  [docs/05-部署验证清单.md](docs/05-部署验证清单.md) 验证
+- ⚠️ **角色一致性**：同一角色在不同镜头里长相会变（图生视频通病，需要固定角色参考图）
+- ⚠️ 任务队列用的是 FastAPI `BackgroundTasks`（同进程内存），生产应换 Celery/RQ + Redis
+- ⚠️ 视频接口不支持 Range 请求，播放器拖不动进度条

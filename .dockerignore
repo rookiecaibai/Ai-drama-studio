@@ -1,0 +1,53 @@
+# Docker 构建忽略清单
+#
+# 为什么需要这个文件：Docker 构建时会把**整个上下文目录**打包发给守护进程，
+# 而 **`.gitignore` 对 Docker 完全无效** —— 两套忽略规则是独立的机制。
+# 不写这个文件的真实后果（我们就是这样发现的）：
+#   1. `backend/.env` 被打进镜像 —— 里面是**真金白银的 API Key**；
+#   2. `.venv/`、`node_modules/` 被打进去 —— 构建慢几十倍、镜像大几个 GB；
+#   3. `backend/media/` 58MB 的生成内容进镜像 —— 用户数据不该固化在镜像里。
+#
+# 一个重要区别：
+#   .gitignore   管的是"什么不进 Git 仓库"
+#   .dockerignore 管的是"什么不进镜像"
+# 两者**都要写**，只写一个会出上面这些问题。
+
+# ── 密钥与本地配置（最重要的一条）──
+**/.env
+**/.env.local
+**/.env.prod
+# 但示例文件必须留着：镜像里需要它做配置参考
+!**/.env.example
+
+# ── Python 虚拟环境与缓存 ──
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+**/*.egg-info/
+
+# ── 本地数据库与测试残留 ──
+*.db
+*.sqlite3
+pytest-of-*/
+**/_test_media/
+
+# ── 生成的媒体：运行时数据，应该用卷挂载，不该打进镜像 ──
+backend/media/
+
+# ── 前端依赖与产物：镜像里会重新构建，不需要宿主机的 ──
+frontend/node_modules/
+frontend/dist/
+
+# ── 版本控制与编辑器 ──
+.git/
+.gitattributes
+.idea/
+.vscode/
+**/.DS_Store
+
+# ── 文档与 CI 不需要进镜像 ──
+docs/
+.github/

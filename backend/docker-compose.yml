@@ -1,21 +1,32 @@
-# 本地一键起整套环境：api + MySQL + Nginx
-# 注意：开发机没有安装 Docker，所以这份配置**尚未实机运行验证过**，
-# 首次使用请按 docs/05-部署验证清单.md 逐步确认。
+# 本地/服务器一键起整套环境：api + MySQL + Nginx
 #
-# 用法：
-#   docker compose up --build          # 构建并启动（nginx 监听 http://localhost:8080）
-#   docker compose down                # 停止
-#   docker compose down -v             # 停止并删除数据库数据卷（数据全清）
+# 用法（**必须在 backend 目录下执行**，因为下面的相对路径都以本文件所在的目录为基准）：
+#   docker compose up --build      # 构建并启动，nginx 监听 http://localhost:8080
+#   docker compose ps              # 看健康状态
+#   docker compose logs -f api     # 看后端日志
+#   docker compose down            # 停止（媒体文件保留在 backend/media）
+#   docker compose down -v         # 停止并删除数据库数据卷（数据全清）
+#
+# ── 配置从哪里来 ──
+# Docker Compose 会**自动读取本文件同目录的 `.env`**，用来做 ${VAR:-默认值} 的替换。
+# 也就是说：你平时开发用的那个 backend/.env 里的 Key，会被自动注入容器，
+# **不需要把密钥写进这个文件**（那样会跟着 Git 一起泄露）。
+#
+# ── 两个容易踩的坑（我们都踩过）──
+# 1. `context: ..` 而不是 `.`：镜像里要打前端产物，所以构建上下文必须是**仓库根目录**。
+#    上下文写小了，Dockerfile 里的 COPY frontend/... 会直接报错找不到文件。
+# 2. `.dockerignore` 必须放在**仓库根目录**：它跟着上下文走。
+#    没有它，backend/.env（真实 API Key）会被打进镜像。
 
 services:
   db:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root_password_change_me
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password_change_me}
       MYSQL_DATABASE: ai_drama
       MYSQL_USER: drama
-      MYSQL_PASSWORD: drama_password_change_me
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-drama_password_change_me}
       TZ: Asia/Shanghai
     command:
       # utf8mb4：MySQL 的 "utf8" 其实是残缺的 3 字节实现，存 emoji 会报错
@@ -27,34 +38,97 @@ services:
       - "3307:3306"   # 映射到宿主 3307，避免和你本机已装的 MySQL(3306) 冲突
     healthcheck:
       # depends_on 的 service_healthy 靠这条判断，避免 API 比数据库先起来而连不上
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_password_change_me"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root_password_change_me}"]
       interval: 5s
       timeout: 5s
       retries: 20
 
   api:
     build:
-      context: .
+      # 上下文是仓库根：镜像里既要后端代码，也要前端构建产物
+      context: ..
+      dockerfile: backend/Dockerfile
       args:
-        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
     restart: unless-stopped
+    volumes:
+      # ⚠️ 这行是**必须的**：生成的画面/配音/动态片段/成片都在 media 目录里。
+      # 不挂卷的话，`docker compose down` 或重建容器后**用户生成的内容全部消失**。
+      # 用绑定挂载（而不是命名卷）是为了让你能在宿主机的 backend/media 里直接看到文件，
+      # 排查问题方便；生产环境换成命名卷或对象存储（OSS/S3）更合适。
+      - ./media:/srv/app/backend/media
     environment:
+      # ── 基础 ──
       ENV: prod
       DEBUG: "false"
       LOG_LEVEL: INFO
+      TZ: Asia/Shanghai
       # MySQL 连接串：注意 charset=utf8mb4
-      DATABASE_URL: mysql+pymysql://drama:drama_password_change_me@db:3306/ai_drama?charset=utf8mb4
+      DATABASE_URL: mysql+pymysql://drama:${MYSQL_PASSWORD:-drama_password_change_me}@db:3306/ai_drama?charset=utf8mb4
       # 表结构由容器入口的 alembic upgrade head 管理，应用启动时不自动建表
       AUTO_CREATE_TABLES: "false"
-      # 密钥从宿主环境注入（.env 或 shell 环境变量）；没设就用这个开发默认值
+      # 媒体根目录：显式写出来，避免和工作目录的默认值产生歧义
+      MEDIA_ROOT: /srv/app/backend/media
+      # 密钥从宿主环境（backend/.env）注入；没设就用开发默认值（**上线必须换**）
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-secret-change-me-in-production}
+
+      # ── 限额（每种能力单独设限：贵的能力限制更严）──
       DAILY_GENERATION_LIMIT: ${DAILY_GENERATION_LIMIT:-20}
+      DAILY_IMAGE_LIMIT: ${DAILY_IMAGE_LIMIT:-60}
+      DAILY_AUDIO_LIMIT: ${DAILY_AUDIO_LIMIT:-60}
+      DAILY_VIDEO_LIMIT: ${DAILY_VIDEO_LIMIT:-10}
+      DAILY_CLIP_LIMIT: ${DAILY_CLIP_LIMIT:-30}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-10}
       LOGIN_WINDOW_SEC: ${LOGIN_WINDOW_SEC:-600}
+
+      # ── 文本模型（分镜 / 大纲 / 角色表 / 情绪分析）──
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
       LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_EXTRA_PARAMS: ${LLM_EXTRA_PARAMS:-}
+
+      # ── 文生图 ──
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-mock}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_BASE_URL: ${IMAGE_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      IMAGE_MODEL: ${IMAGE_MODEL:-cogview-3-flash}
+      IMAGE_SIZE: ${IMAGE_SIZE:-1024x1024}
+      IMAGE_EXTRA_PARAMS: ${IMAGE_EXTRA_PARAMS:-}
+
+      # ── 配音（多角色 + 情绪）──
+      TTS_PROVIDER: ${TTS_PROVIDER:-mock}
+      TTS_API_KEY: ${TTS_API_KEY:-}
+      TTS_BASE_URL: ${TTS_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      TTS_MODEL: ${TTS_MODEL:-glm-tts}
+      TTS_VOICE: ${TTS_VOICE:-tongtong}
+      TTS_RESPONSE_FORMAT: ${TTS_RESPONSE_FORMAT:-wav}
+      TTS_INSTRUCTIONS_PARAM: ${TTS_INSTRUCTIONS_PARAM:-}
+      TTS_EXTRA_PARAMS: ${TTS_EXTRA_PARAMS:-}
+
+      # ── 图生视频（让画面真的动起来）──
+      # none = 成片用静态图；mock = 本地运镜（免费）；openai_compat = 真调视频模型
+      VIDEO_CLIP_PROVIDER: ${VIDEO_CLIP_PROVIDER:-none}
+      VIDEO_API_KEY: ${VIDEO_API_KEY:-}
+      VIDEO_BASE_URL: ${VIDEO_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      VIDEO_MODEL: ${VIDEO_MODEL:-cogvideox-2}
+      VIDEO_SIZE: ${VIDEO_SIZE:-1080x1920}
+      # duration 只有 cogvideox-3 支持；用 cogvideox-2 / flash 时必须为 false
+      VIDEO_SEND_DURATION: ${VIDEO_SEND_DURATION:-false}
+      VIDEO_QUALITY: ${VIDEO_QUALITY:-speed}
+      VIDEO_CLIP_SECONDS: ${VIDEO_CLIP_SECONDS:-5}
+      VIDEO_POLL_TIMEOUT_SEC: ${VIDEO_POLL_TIMEOUT_SEC:-360}
+      VIDEO_EXTRA_PARAMS: ${VIDEO_EXTRA_PARAMS:-}
+
+      # ── 成片参数 ──
+      VIDEO_WIDTH: ${VIDEO_WIDTH:-720}
+      VIDEO_HEIGHT: ${VIDEO_HEIGHT:-1280}
+      VIDEO_FPS: ${VIDEO_FPS:-25}
+      VIDEO_CRF: ${VIDEO_CRF:-26}
+      VIDEO_PRESET: ${VIDEO_PRESET:-veryfast}
+      # 留空 = 自动查找（会用 imageio-ffmpeg 自带的那份，镜像里不需要装 ffmpeg）
+      FFMPEG_PATH: ${FFMPEG_PATH:-}
     depends_on:
       db:
         condition: service_healthy
