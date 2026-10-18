@@ -184,7 +184,11 @@ def test_clip_task_disabled_returns_400(client):
     _, episode = _prepare_with_images(client)
     resp = client.post(f"/api/v1/episodes/{episode['id']}/clips", json={})
     assert resp.status_code == 400
-    assert "VIDEO_CLIP_PROVIDER" in resp.json()["error"]["message"]
+    # 提示要告诉用户"去哪里配"，而不只是甩一个环境变量名 ——
+    # 现在模型配置是每个短剧自己的（短剧设置），不再只有服务端 .env 一处
+    message = resp.json()["error"]["message"]
+    assert "图生视频" in message
+    assert "设置" in message
 
 
 def test_clip_task_generates_clips_for_every_shot(client):

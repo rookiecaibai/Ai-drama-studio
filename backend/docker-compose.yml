@@ -72,6 +72,9 @@ services:
       MEDIA_ROOT: /srv/app/backend/media
       # 密钥从宿主环境（backend/.env）注入；没设就用开发默认值（**上线必须换**）
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-secret-change-me-in-production}
+      # 用户没填自己的 Key 时是否回退到上面这些服务端 Key。
+      # 部署到公网建议设成 "false"（严格 BYOK），否则陌生人能刷爆你的账户。
+      ALLOW_SERVER_KEY_FALLBACK: ${ALLOW_SERVER_KEY_FALLBACK:-true}
 
       # ── 限额（每种能力单独设限：贵的能力限制更严）──
       DAILY_GENERATION_LIMIT: ${DAILY_GENERATION_LIMIT:-20}

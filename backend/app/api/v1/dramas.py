@@ -12,6 +12,7 @@ from app.api.deps import (
     QuotaServiceDep,
     SessionFactoryDep,
 )
+from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
 from app.db.models import Character, DialogueLine, Drama, Episode, GenerationTask, Shot, User
 from app.schemas.character import CharacterRead, TurnaroundGenerateRequest
@@ -24,6 +25,7 @@ from app.schemas.episode import (
 )
 from app.schemas.task import GenerationTaskRead
 from app.services import media
+from app.services import model_config
 from app.services.cast_service import analyze_cast
 from app.services.quota import QuotaService
 from app.services.synopsis_service import generate_synopsis
@@ -175,6 +177,10 @@ def create_turnaround_task(
     """
     drama = _get_owned_drama(db, drama_id, user)
 
+    # 用户的短剧里可能填了自己的文生图模型与 Key，那就用它（见 services/model_config.py）。
+    # 没填则 fallback 到依赖注入进来的全局 provider —— 这也让测试的依赖覆盖继续生效。
+    provider = model_config.build_image(db, drama, get_settings(), fallback=provider)
+
     quota.ensure_allowed(db, user.id, kind="turnaround")
     log = quota.record(
         db,
@@ -229,6 +235,9 @@ async def analyze_drama_cast(
     （当然，直接点"生成配音"时如果还没有角色表，任务里也会自动先分析一次。）
     """
     drama = _get_owned_drama(db, drama_id, user)
+
+    # 短剧级模型配置：用户填了自己的文本模型/Key 就用他的
+    provider = model_config.build_llm(db, drama, get_settings(), fallback=provider)
 
     quota.ensure_allowed(db, user.id, kind="cast")
     log = quota.record(db, user_id=user.id, episode_id=None, provider=provider.name, kind="cast")
@@ -317,6 +326,9 @@ async def generate_episode_synopsis(
         )
         if target is not None:
             log_episode_id = target.id
+
+    # 短剧级模型配置：用户填了自己的文本模型/Key 就用他的
+    provider = model_config.build_llm(db, drama, get_settings(), fallback=provider)
 
     # 注意 kind 必须和下面 record 时一致：
     # 检查用哪个额度、流水记成哪个类型，两者对不上额度就形同虚设

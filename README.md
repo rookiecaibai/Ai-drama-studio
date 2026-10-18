@@ -94,6 +94,8 @@ python -m pytest
 | POST | `/api/v1/dramas/{id}/characters/turnarounds` | **为角色生成三视图**（设定图，202，剧级任务；旁白自动跳过） |
 | PATCH | `/api/v1/characters/{id}` | **改角色卡**（性别/年龄/外貌/职业/背景/音色/锁定外貌提示词） |
 | PATCH | `/api/v1/shots/{id}` | **手动编辑镜头**（改台词会作废该镜头的配音） |
+| GET | `/api/v1/dramas/{id}/settings` | **短剧设置**（名称 + 四个模态的模型配置；**Key 只返回掩码**） |
+| PATCH | `/api/v1/dramas/{id}/settings` | 改短剧设置 / 填自己的 API Key（加密落库，永不回显） |
 | POST | `/api/v1/episodes/{id}/clips` | **批量生成动态片段**（图生视频，让画面真的动起来，202） |
 | POST | `/api/v1/episodes/{id}/audio` | **批量生成台词配音**（TTS，只给有台词的镜头，202） |
 | POST | `/api/v1/episodes/{id}/video` | **合成竖屏 MP4**（本地 ffmpeg，202，异步执行） |
@@ -303,6 +305,10 @@ frontend/                    # Vite + React + TS 前端
 - ✅ **图生视频**：静图 → 真的会动的短片（真实 CogVideoX-2 已出片，5.1 秒/1080x1920）
   - 三种模式：`none` 退回静图 / `mock` 本地运镜（免费且画面真会动）/ `openai_compat` 真模型
   - **像素级断言**守护"画面真的在动"：静态图 0.0% 像素变化，接入后 45%~64%
+- ✅ **短剧设置（用户自带 Key / BYOK）**：每个短剧可独立配置文本/图片/配音/视频四种模型与 API Key
+  - Key **加密落库、接口永不回显**（只给掩码 `sk-abc…9f2`），掩码也只在"用户自己填的"情况下才显示
+  - 不填则回退服务端默认；`ALLOW_SERVER_KEY_FALLBACK=false` 可切成**严格 BYOK**（公网部署建议开）
+  - `base_url` 做 **SSRF 校验**：只放行 https 且非内网/环回地址
 - ✅ **角色卡 + 三视图**：性别/年龄/外貌/职业/背景存成可编辑数据；三视图（正面/侧面/背面设定图）
   用来**先确认长相**，再批量画整集 —— 省掉"画完全片才发现角色不对"的返工
   - **角色一致性靠 `look_prompt` 文本锚定**（每个镜头都带上前面的外貌描述）：

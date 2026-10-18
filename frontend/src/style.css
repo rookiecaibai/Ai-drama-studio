@@ -349,3 +349,67 @@ tr.editing td textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 
+/* ── 可折叠区块（短剧设置）── */
+details.collapsible {
+  margin: 14px 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+details.collapsible > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+details.collapsible[open] > summary { margin-bottom: 10px; }
+
+/* ── 短剧设置面板 ── */
+.settings-panel h3 { margin: 0 0 8px; font-size: 15px; }
+.settings-group {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-group:last-of-type { border-bottom: none; }
+.settings-group h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin-top: 6px;
+}
+.settings-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings-grid label.wide { grid-column: 1 / -1; }
+.settings-grid label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+.settings-grid label.inline input { width: auto; }
+.settings-grid input,
+.settings-grid select {
+  width: 100%;
+  padding: 5px 7px;
+  font-size: 13px;
+  color: var(--text);
+  background: #0e1318;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: inherit;
+}
+
+

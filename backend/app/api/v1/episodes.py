@@ -15,6 +15,7 @@ from app.api.deps import (
     SessionFactoryDep,
     TtsProviderDep,
 )
+from app.core.config import get_settings
 from app.core.errors import AppError, NotFoundError
 from app.db.models import Episode, GenerationTask, User
 from app.schemas.episode import (
@@ -27,6 +28,7 @@ from app.schemas.episode import (
 )
 from app.schemas.task import GenerationTaskRead
 from app.services import media
+from app.services import model_config
 from app.services.task_service import (
     run_audio_task,
     run_clip_task,
@@ -102,6 +104,9 @@ def create_generation_task(
 
     # 配额在"登记任务"时就检查和占用（失败也消耗，见 quota.py 的注释）
     quota.ensure_allowed(db, user.id)
+    # 短剧级模型配置：用户填了自己的文本模型/Key 就用他的
+    provider = model_config.build_llm(db, episode.drama, get_settings(), fallback=provider)
+
     log = quota.record(db, user_id=user.id, episode_id=episode.id, provider=provider.name)
 
     task = GenerationTask(
@@ -149,6 +154,9 @@ def create_image_task(
     区别只在 kind=images，以及配额走 DAILY_IMAGE_LIMIT（图片贵得多，限额单独设）。
     """
     episode = _get_owned_episode(db, episode_id, user)
+
+    # 短剧级模型配置：用户填了自己的文生图模型/Key 就用他的
+    provider = model_config.build_image(db, episode.drama, get_settings(), fallback=provider)
 
     quota.ensure_allowed(db, user.id, kind="images")
     log = quota.record(
@@ -206,6 +214,10 @@ def create_audio_task(
     只有**有台词**的镜头才算进 total：纯画面镜头没话可说。
     """
     episode = _get_owned_episode(db, episode_id, user)
+
+    # 短剧级模型配置：配音和"分析角色/情绪"用的文本模型都可以是用户自己的
+    provider = model_config.build_tts(db, episode.drama, get_settings(), fallback=provider)
+    llm = model_config.build_llm(db, episode.drama, get_settings(), fallback=llm)
 
     quota.ensure_allowed(db, user.id, kind="audio")
     log = quota.record(
@@ -265,9 +277,11 @@ def create_clip_task(
     """
     episode = _get_owned_episode(db, episode_id, user)
 
+    # 短剧级模型配置（图生视频）—— 注意这里可能返回 None（用户把 provider 填成 none）
+    provider = model_config.build_video(db, episode.drama, get_settings(), fallback=provider)
     if provider is None:
         raise AppError(
-            "当前没有启用图生视频（VIDEO_CLIP_PROVIDER=none）。"
+            "当前没有启用图生视频（可在这个短剧的「设置」里配置，或用服务端默认）。"
             "可选：mock（本地运镜，免费）或 openai_compat（真实视频模型）",
             code="clip_provider_disabled",
             status_code=400,

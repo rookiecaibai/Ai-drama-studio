@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import AuthMedia from './AuthMedia'
 import CharacterPanel from './CharacterPanel'
+import DramaSettingsPanel from './DramaSettingsPanel'
 import type {
   Character,
   Drama,
@@ -481,6 +482,32 @@ export default function DramaWorkspace({
             <p className="muted">选择或创建一部短剧开始创作</p>
           ) : (
             <>
+              {/* 短剧设置：和"角色卡""剧集"并列，属于**这部短剧**而不是某一集 */}
+              <details className="collapsible">
+                <summary>短剧设置（名称 / 模型 / 我的 API Key）</summary>
+                <DramaSettingsPanel
+                  dramaId={selectedDramaId}
+                  onSaved={() => {
+                    void loadDramas()
+                  }}
+                />
+              </details>
+
+              {/*
+                角色卡提到**剧级**：它本来就是按剧存的（characters.drama_id），
+                这一集的每个镜头都会参考它。放在这里的好处是
+                **不用先点开某一集**就能看到/编辑角色，先定角色再写剧本更顺。
+              */}
+              <CharacterPanel
+                dramaId={selectedDramaId}
+                characters={characters}
+                version={mediaVersion}
+                onChanged={() => {
+                  void loadCharacters(selectedDramaId)
+                  setMediaVersion((v) => v + 1)
+                }}
+              />
+
               <h2>剧集</h2>
               <div className="episode-header">
                 <button onClick={openNewEpisode} disabled={showNewEpisode}>＋ 新增一集</button>
@@ -621,18 +648,6 @@ export default function DramaWorkspace({
                           ? `${TASK_STATUS_TEXT[task.status]} ${task.done}/${task.total}`
                           : TASK_STATUS_TEXT[task.status]}
                     </p>
-                  )}
-
-                  {selectedDramaId !== null && (
-                    <CharacterPanel
-                      dramaId={selectedDramaId}
-                      characters={characters}
-                      version={mediaVersion}
-                      onChanged={() => {
-                        void loadCharacters(selectedDramaId)
-                        setMediaVersion((v) => v + 1)
-                      }}
-                    />
                   )}
 
                   <table className="shots">

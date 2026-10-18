@@ -8,7 +8,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -240,6 +240,32 @@ class GenerationLog(TimestampMixin, Base):
     kind: Mapped[str] = mapped_column(String(20), default="shots", nullable=False)
     provider: Mapped[str] = mapped_column(String(40), default="", nullable=False)  # 用了哪家模型
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending/success/failed
+
+
+class DramaModelSettings(TimestampMixin, Base):
+    """每个短剧自己的模型配置（用户带自己的 API Key）。
+
+    **为什么要有这张表**：改之前所有人共用服务端 `.env` 里的 Key，
+    等于"陌生人花你的钱"。改成每个短剧独立配置之后：
+    用户填自己的 Key 就用自己的额度；不填则回退服务端默认（可关掉，做严格 BYOK）。
+
+    **为什么用 JSON 列而不是二十几个字段**：
+    四种模态 × 五个字段（provider/base_url/model/api_key/模态特有项）太重复，
+    而且将来加一种模态或加一个厂商参数就要改表结构。
+    代价是失去了数据库层的类型约束 —— 所以校验全部放在 Pydantic Schema 里做，
+    JSON 只是"存下来"，不是"随便存"。
+
+    **API Key 加密存在 config 里的 api_key_enc 字段**，绝不明文、绝不回显。
+    """
+
+    __tablename__ = "drama_model_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    drama_id: Mapped[int] = mapped_column(
+        ForeignKey("dramas.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    # 形如 {"llm": {"provider": "...", "model": "...", "api_key_enc": "enc:v1:..."}, "image": {...}}
+    config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class GenerationTask(TimestampMixin, Base):

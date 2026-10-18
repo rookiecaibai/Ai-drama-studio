@@ -4,9 +4,11 @@
 import type {
   Character,
   Drama,
+  DramaSettings,
   Episode,
   EpisodeDetail,
   GenerationTask,
+  ModalityPayload,
   Shot,
   SynopsisRead,
   TokenResponse,
@@ -203,6 +205,33 @@ export const api = {
   /** 角色三视图的地址（同样需要带 Authorization 头） */
   characterTurnaroundPath: (characterId: number) =>
     `/api/v1/characters/${characterId}/turnaround`,
+
+  /** 短剧设置：短剧信息 + 四个模态的模型配置（含服务端默认值，供前端展示） */
+  getDramaSettings: (dramaId: number) =>
+    request<DramaSettings>(`/api/v1/dramas/${dramaId}/settings`),
+
+  /**
+   * 修改短剧设置。
+   * 注意 `api_key` 的语义：**传空字符串 = 清除已保存的 Key**，不传 = 保持原样。
+   * 密钥后端加密存储，接口也永远不会把它回显出来。
+   */
+  updateDramaSettings: (
+    dramaId: number,
+    payload: {
+      title?: string
+      genre?: string
+      logline?: string
+      style?: string
+      llm?: ModalityPayload
+      image?: ModalityPayload
+      tts?: ModalityPayload
+      video?: ModalityPayload
+    },
+  ) =>
+    request<DramaSettings>(`/api/v1/dramas/${dramaId}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
 
   /** 为这一集的台词批量生成配音（TTS）。返回任务，前端轮询进度。 */
   generateAudio: (episodeId: number, onlyMissing = true) =>

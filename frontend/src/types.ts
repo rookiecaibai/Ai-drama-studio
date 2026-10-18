@@ -128,3 +128,50 @@ export interface SynopsisRead {
   synopsis: string
   used_context_episodes: number[]
 }
+
+/**
+ * 一个模态（文本/图片/配音/视频）的模型配置。
+ * **注意：这里没有 api_key 字段** —— 后端永远不返回明文，
+ * 只返回 has_key 和掩码，密钥只进不出。
+ */
+export interface ModalitySettings {
+  provider: string
+  base_url: string
+  model: string
+  size: string
+  voice: string
+  send_duration: boolean | null
+  /** 是否已填了自己的 Key */
+  has_key: boolean
+  /** 掩码，如 `sk-abc…9f2`，只用来显示"填的是哪一把" */
+  api_key_hint: string
+  /** "drama" = 用这个短剧自己填的；"server" = 回退到服务端默认 */
+  source: string
+}
+
+/** 写入某个模态的配置（可选字段：只传要改的那些） */
+export interface ModalityPayload {
+  provider?: string
+  base_url?: string
+  model?: string
+  /** 传空字符串 = 清除已保存的 Key；不传 = 保持原样 */
+  api_key?: string
+  size?: string
+  voice?: string
+  send_duration?: boolean
+}
+
+/** 短剧设置：改名 + 四个模态的模型配置 */
+export interface DramaSettings {
+  id: number
+  title: string
+  genre: string
+  logline: string | null
+  style: string
+  llm: ModalitySettings
+  image: ModalitySettings
+  tts: ModalitySettings
+  video: ModalitySettings
+  /** 服务端是否允许"不填 Key 就用默认 Key"。false 时每个短剧都必须填自己的 */
+  allow_server_key_fallback: boolean
+}

@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # 生产环境必须通过环境变量覆盖！这个默认值只用于本地开发。
     # 生成真密钥：python -c "import secrets; print(secrets.token_hex(32))"
     jwt_secret_key: str = "dev-only-secret-change-me-in-production"
+
+    # 用户没填自己的 API Key 时，是否允许回退到服务端的 Key。
+    #   true （默认）：方便试玩 —— 不填也能生成，但**花的是你的钱**
+    #   false        ：严格 BYOK —— 每个短剧必须填自己的 Key 才能生成
+    # 上线到公网时建议设为 false，否则任何人都能刷爆你的账户。
+    allow_server_key_fallback: bool = True
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24  # 默认 24 小时
 
