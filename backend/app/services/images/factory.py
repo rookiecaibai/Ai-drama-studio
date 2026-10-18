@@ -25,6 +25,9 @@ def build_image_provider(settings: Settings) -> ImageProvider:
             extra_params=parse_extra_params(
                 settings.image_extra_params, name="IMAGE_EXTRA_PARAMS"
             ),
+            # 节流 + 重试：把"自己把自己限流打满"这件事从根上避免（见 provider 里的说明）
+            min_interval=settings.image_min_interval_sec,
+            retry_attempts=settings.image_retry_attempts,
         )
 
     raise AppError(

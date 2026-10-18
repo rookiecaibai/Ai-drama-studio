@@ -159,6 +159,12 @@ class Settings(BaseSettings):
     # 和"整集批量出图"是两种完全不同的使用节奏，混在一个额度里会互相挤占。
     daily_turnaround_limit: int = 20
 
+    # 文生图的节流与重试（都是被 429 打出来之后加的）：
+    # 实测：同时点「生成三视图」和「生成画面」会把免费模型的账户级限流打满，
+    # 一次批量 4 张全部 429。所以两次请求之间至少隔一会儿，失败则指数退避重试。
+    image_min_interval_sec: float = 1.2
+    image_retry_attempts: int = 3
+
     # 视频厂商的私有参数透传（JSON 字符串），格式见 IMAGE_EXTRA_PARAMS 的说明。
     # 例：VIDEO_EXTRA_PARAMS={"watermark_enabled": false}
     video_extra_params: str = ""
