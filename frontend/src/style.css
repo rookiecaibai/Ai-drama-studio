@@ -1,11 +1,42 @@
+/*
+ * 主题：所有颜色都走 CSS 变量。
+ * 切换主题 = 给 <html> 换一个 data-theme，不需要 React 重渲染任何样式。
+ *
+ * 两套配色的思路不是"把深色反相"，而是各自重新定：
+ * 深色里用"提亮"制造层级，浅色里用"阴影 + 边框"制造层级 ——
+ * 直接反相会让浅色模式看起来脏兮兮的。
+ */
 :root {
+  /* 深色（默认） */
   --bg: #101418;
   --panel: #1a2027;
+  --panel-2: rgba(255, 255, 255, 0.03); /* 比面板再淡一层：角色卡等次级卡片 */
   --border: #2c3642;
   --text: #e6e9ec;
   --muted: #8a97a3;
   --accent: #4f8ef7;
+  --accent-weak: rgba(79, 142, 247, 0.12); /* 选中的行 / tab 底色 */
+  --input-bg: var(--input-bg);
+  --hover: rgba(255, 255, 255, 0.05);
   --danger: #e05b5b;
+  --danger-bg: #3a1f1f;
+  --shadow: none;
+}
+
+:root[data-theme='light'] {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --panel-2: #f7f9fc;
+  --border: #dbe2ec;
+  --text: #1c2632;
+  --muted: #67788a;
+  --accent: #2f6fe0;
+  --accent-weak: rgba(47, 111, 224, 0.10);
+  --input-bg: #ffffff;
+  --hover: rgba(47, 111, 224, 0.06);
+  --danger: #d64545;
+  --danger-bg: #fdecec;
+  --shadow: 0 1px 2px rgba(16, 24, 32, 0.06);
 }
 
 * { box-sizing: border-box; }
@@ -34,7 +65,7 @@ button.link {
 }
 input, textarea {
   width: 100%;
-  background: var(--bg);
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
@@ -47,7 +78,7 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
 .center { text-align: center; padding: 60px 20px; }
 .error { color: var(--danger); margin-top: 10px; }
 .error-banner {
-  background: #3a1f1f;
+  background: var(--danger-bg);
   border: 1px solid var(--danger);
   border-radius: 6px;
   padding: 10px 14px;
@@ -264,7 +295,7 @@ video.player {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel-2);
 }
 .character-card-head {
   display: flex;
@@ -306,7 +337,7 @@ img.turnaround {
   padding: 5px 7px;
   font-size: 13px;
   color: var(--text);
-  background: #0e1318;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   font-family: inherit;
@@ -322,13 +353,13 @@ img.turnaround {
 /* ── 镜头行内编辑 ── */
 .shot-actions { width: 116px; white-space: nowrap; }
 .shot-actions button { font-size: 12px; padding: 4px 10px; margin-right: 4px; }
-tr.editing { background: rgba(79, 142, 247, 0.08); }
+tr.editing { background: var(--accent-weak); }
 input.mini {
   width: 100%;
   padding: 4px 6px;
   font-size: 12px;
   color: var(--text);
-  background: #0e1318;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
@@ -339,7 +370,7 @@ tr.editing td textarea {
   padding: 5px 7px;
   font-size: 12px;
   color: var(--text);
-  background: #0e1318;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   font-family: inherit;
@@ -406,7 +437,7 @@ details.collapsible[open] > summary { margin-bottom: 10px; }
   padding: 5px 7px;
   font-size: 13px;
   color: var(--text);
-  background: #0e1318;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   font-family: inherit;
@@ -430,5 +461,84 @@ button.danger {
 }
 button.danger:disabled { opacity: 0.6; }
 
+/* ── 面包屑：随时知道自己在哪一层 ── */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.crumbs .current { color: var(--text); font-weight: 600; }
+.crumbs .sep { opacity: 0.5; }
 
+/* ── 一级 tab（分镜 / 角色卡 / 设置）：一屏只做一件事 ── */
+.content-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.tab {
+  background: none;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tab:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover);
+  border-radius: 6px 6px 0 0;
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.tab .count {
+  background: var(--accent-weak);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tab .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2fa866; /* 已生成标记 */
+}
 
+/* ── 二级：剧集 tab（原来是竖列表，改成横向胶囊省出竖向空间）── */
+.episode-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.episode-tabs .tab {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.episode-tabs .tab.active,
+.episode-tabs .tab.active:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.episode-tabs .tab.add { padding: 5px 10px; color: var(--muted); font-weight: 600; }
+
+/* 顶部主题切换按钮 */
+.theme-toggle { font-size: 12px; }

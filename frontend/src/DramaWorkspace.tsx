@@ -3,6 +3,7 @@ import { api } from './api'
 import AuthMedia from './AuthMedia'
 import CharacterPanel from './CharacterPanel'
 import DramaSettingsPanel from './DramaSettingsPanel'
+import ThemeToggle from './ThemeToggle'
 import type {
   Character,
   Drama,
@@ -65,6 +66,8 @@ export default function DramaWorkspace({
 
   // 这部剧的角色表（配音的选角依据 + 画面的外貌锚点）
   const [characters, setCharacters] = useState<Character[]>([])
+  // 一级 tab：分镜与生成 / 角色卡 / 短剧设置 —— 一屏只做一件事
+  const [contentTab, setContentTab] = useState<'storyboard' | 'characters' | 'settings'>('storyboard')
   // 正在编辑哪个镜头（null = 都没在编辑）+ 该镜头的草稿
   const [editingShotId, setEditingShotId] = useState<number | null>(null)
   const [shotDraft, setShotDraft] = useState<{
@@ -126,10 +129,20 @@ export default function DramaWorkspace({
     if (selectedDramaId !== null) {
       void loadEpisodes(selectedDramaId)
       void loadCharacters(selectedDramaId)
+      // 换剧时回到主工作区，别让用户停在上一部剧的"设置"tab 里
+      setContentTab('storyboard')
     } else {
       setCharacters([])
     }
   }, [selectedDramaId, loadEpisodes, loadCharacters])
+
+  // 打开一部剧时自动选中第一集：省掉"先点一集才有内容"这一步。
+  // 注意条件里带了 selectedEpisode === null，所以不会和用户手动选择打架（也不会死循环）。
+  useEffect(() => {
+    if (selectedEpisode === null && episodes.length > 0) {
+      void loadEpisode(episodes[0].id)
+    }
+  }, [episodes, selectedEpisode, loadEpisode])
 
   // 任务轮询：每 0.8 秒查一次，到达终态后刷新分镜
   useEffect(() => {
@@ -426,6 +439,8 @@ export default function DramaWorkspace({
       <header>
         <h1>AI 短剧工作室</h1>
         <span className="muted">
+          <ThemeToggle />
+          {' · '}
           {user.username} · <button className="link" onClick={onLogout}>退出</button>
         </span>
       </header>
@@ -486,48 +501,105 @@ export default function DramaWorkspace({
             <p className="muted">选择或创建一部短剧开始创作</p>
           ) : (
             <>
-              {/* 短剧设置：和"角色卡""剧集"并列，属于**这部短剧**而不是某一集 */}
-              <details className="collapsible">
-                <summary>短剧设置（名称 / 模型 / 我的 API Key）</summary>
-                <DramaSettingsPanel
-                  dramaId={selectedDramaId}
-                  onSaved={() => {
-                    void loadDramas()
-                  }}
-                  onDeleted={handleDramaDeleted}
-                />
-              </details>
+              {/* 面包屑：一眼看到"我在哪一层" */}
+              <nav className="crumbs">
+                <span>我的短剧</span>
+                <span className="sep">›</span>
+                <span className="current">
+                  {dramas.find((d) => d.id === selectedDramaId)?.title ?? ''}
+                </span>
+                {selectedEpisode && (
+                  <>
+                    <span className="sep">›</span>
+                    <span className="current">第 {selectedEpisode.number} 集</span>
+                  </>
+                )}
+              </nav>
 
               {/*
-                角色卡提到**剧级**：它本来就是按剧存的（characters.drama_id），
-                这一集的每个镜头都会参考它。放在这里的好处是
-                **不用先点开某一集**就能看到/编辑角色，先定角色再写剧本更顺。
-                外面套一层 <details> 是为了能收起 —— 它内容很长（每个角色一张三视图 + 9 个字段），
-                展开时会把下面的剧集列表挤得很远。
+                一级 tab：一屏只做一件事。
+                原来"短剧设置 / 角色卡 / 剧集 / 分镜表"是纵向堆在一列里的，
+                越往下越深，还得来回滚。改成 tab 之后每屏只出现一个关注点。
               */}
-              <details className="collapsible">
-                <summary>
-                  角色卡与三视图（{characters.length} 个角色
-                  {characters.filter((c) => c.turnaround_path).length > 0
-                    ? ` · ${characters.filter((c) => c.turnaround_path).length} 个已有三视图`
-                    : ''}
-                  ）
-                </summary>
-                <CharacterPanel
-                  dramaId={selectedDramaId}
-                  characters={characters}
-                  version={mediaVersion}
-                  onChanged={() => {
-                    void loadCharacters(selectedDramaId)
-                    setMediaVersion((v) => v + 1)
-                  }}
-                />
-              </details>
-
-              <h2>剧集</h2>
-              <div className="episode-header">
-                <button onClick={openNewEpisode} disabled={showNewEpisode}>＋ 新增一集</button>
+              <div className="content-tabs" role="tablist">
+                <button
+                  role="tab"
+                  className={`tab${contentTab === 'storyboard' ? ' active' : ''}`}
+                  onClick={() => setContentTab('storyboard')}
+                >
+                  分镜与生成
+                </button>
+                <button
+                  role="tab"
+                  className={`tab${contentTab === 'characters' ? ' active' : ''}`}
+                  onClick={() => setContentTab('characters')}
+                >
+                  角色卡与三视图
+                  {characters.length > 0 && <span className="count">{characters.length}</span>}
+                </button>
+                <button
+                  role="tab"
+                  className={`tab${contentTab === 'settings' ? ' active' : ''}`}
+                  onClick={() => setContentTab('settings')}
+                >
+                  短剧设置
+                </button>
               </div>
+
+              {contentTab === 'settings' && (
+                <section className="tab-panel">
+                  <DramaSettingsPanel
+                    dramaId={selectedDramaId}
+                    onSaved={() => {
+                      void loadDramas()
+                    }}
+                    onDeleted={handleDramaDeleted}
+                  />
+                </section>
+              )}
+
+              {contentTab === 'characters' && (
+                <section className="tab-panel">
+                  <CharacterPanel
+                    dramaId={selectedDramaId}
+                    characters={characters}
+                    version={mediaVersion}
+                    onChanged={() => {
+                      void loadCharacters(selectedDramaId)
+                      setMediaVersion((v) => v + 1)
+                    }}
+                  />
+                </section>
+              )}
+
+              {contentTab === 'storyboard' && (
+                <>
+                  {/* 二级 tab：剧集。原来是竖列表，改成横向胶囊后省出一大块竖向空间 */}
+                  <div className="episode-tabs" role="tablist">
+                    {episodes.map((ep) => (
+                      <button
+                        key={ep.id}
+                        role="tab"
+                        className={`tab${ep.id === selectedEpisode?.id ? ' active' : ''}`}
+                        onClick={() => void loadEpisode(ep.id)}
+                        title={ep.title || '（未命名）'}
+                      >
+                        第 {ep.number} 集
+                        {ep.status === 'ready' && <span className="dot" />}
+                      </button>
+                    ))}
+                    <button
+                      className="tab add"
+                      onClick={openNewEpisode}
+                      disabled={showNewEpisode}
+                      title="新增一集"
+                    >
+                      ＋
+                    </button>
+                    {episodes.length === 0 && (
+                      <span className="muted small">还没有剧集，点「＋」新增</span>
+                    )}
+                  </div>
 
               {showNewEpisode && (
                 <section className="new-episode-panel">
@@ -559,20 +631,7 @@ export default function DramaWorkspace({
                 </section>
               )}
 
-              <ul className="episode-list">
-                {episodes.map((ep) => (
-                  <li
-                    key={ep.id}
-                    className={ep.id === selectedEpisode?.id ? 'active' : ''}
-                    onClick={() => void loadEpisode(ep.id)}
-                  >
-                    第 {ep.number} 集 {ep.title || '（未命名）'}
-                    <span className={`badge ${ep.status}`}>{ep.status === 'ready' ? '已生成' : '草稿'}</span>
-                  </li>
-                ))}
-              </ul>
-
-              {selectedEpisode && (
+              {selectedEpisode ? (
                 <section className="episode-detail">
                   <h3>第 {selectedEpisode.number} 集</h3>
 
@@ -859,11 +918,16 @@ export default function DramaWorkspace({
                       上次合成失败：{selectedEpisode.video_error}
                     </p>
                   ) : (
-                    <p className="muted">
-                      还没有成片 —— 先生成画面（配音可选），再点"合成视频"
-                    </p>
+                    <p className="muted">这一集还没有成片 —— 先生成画面（配音可选），再点"合成视频"</p>
                   )}
                 </section>
+              ) : (
+                <p className="muted">
+                  这部短剧还没有剧集。点上面的「＋」新增一集，写清这一集发生了什么，
+                  再点「AI 生成分镜」。
+                </p>
+              )}
+                </>
               )}
             </>
           )}
