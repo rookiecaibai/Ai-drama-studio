@@ -79,6 +79,9 @@ services:
       DAILY_AUDIO_LIMIT: ${DAILY_AUDIO_LIMIT:-60}
       DAILY_VIDEO_LIMIT: ${DAILY_VIDEO_LIMIT:-10}
       DAILY_CLIP_LIMIT: ${DAILY_CLIP_LIMIT:-30}
+      # 角色三视图：一张图 = 一次调用，而且用户会反复调角色卡重生成，
+      # 和"整集批量出图"是两种节奏，所以单独设一个额度
+      DAILY_TURNAROUND_LIMIT: ${DAILY_TURNAROUND_LIMIT:-20}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-10}
       LOGIN_WINDOW_SEC: ${LOGIN_WINDOW_SEC:-600}
 

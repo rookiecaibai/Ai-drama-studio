@@ -29,6 +29,7 @@ _KIND_LABEL = {
     "synopsis": "生成大纲",
     "images": "生成画面",
     "clips": "生成动态镜头",
+    "turnaround": "生成角色三视图",
     "audio": "生成配音",
     "video": "合成视频",
     "cast": "分析角色",

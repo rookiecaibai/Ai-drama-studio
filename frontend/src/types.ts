@@ -68,10 +68,50 @@ export interface EpisodeDetail extends Episode {
   shots: Shot[]
 }
 
+/**
+ * 角色卡：一张卡同时服务两件事。
+ * - 配音关心：gender / age_group / voice / pitch_shift / speed
+ * - 画面关心：gender / age / appearance / occupation / look_prompt
+ */
+export interface Character {
+  id: number
+  drama_id: number
+  name: string
+  gender: string
+  age_group: string
+  voice: string
+  pitch_shift: number
+  speed: number
+  personality: string
+  notes: string
+  // ── 角色卡（画角色/画镜头用）──
+  /** 具体年龄；为空时用 age_group 兜底 */
+  age: number | null
+  /** 外貌：发型/脸型/体型/常穿的衣服 —— 决定"同一个角色在不同镜头里长得像" */
+  appearance: string
+  occupation: string
+  background: string
+  /** 锁定的外貌提示词：留空 = 自动从上面几个字段生成；填了 = 以它为准 */
+  look_prompt: string
+  /** 有值表示三视图已生成，通过 GET /characters/{id}/turnaround 读取 */
+  turnaround_path: string | null
+  turnaround_error: string | null
+}
+
+export interface VoiceOption {
+  voice: string
+  label: string
+  /** 实测基频：男声约 85~155Hz，女声约 165~265Hz */
+  pitch_hz: number | null
+}
+
 export interface GenerationTask {
   id: number
-  episode_id: number
-  kind: 'shots' | 'images' | 'clips' | 'audio' | 'video' | 'cast'
+  /** 集级任务才有；剧级任务（角色三视图）为 null */
+  episode_id: number | null
+  /** 剧级任务（角色三视图）才有 */
+  drama_id: number | null
+  kind: 'shots' | 'images' | 'clips' | 'audio' | 'video' | 'cast' | 'turnaround'
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   provider: string
   shot_count: number

@@ -15,6 +15,7 @@
 
 import base64
 import logging
+from pathlib import Path
 
 import httpx
 
@@ -55,6 +56,9 @@ def _extract_image_ref(payload: dict) -> str:
 
 class OpenAICompatImageProvider(ImageProvider):
     name = "openai_compat"
+    # 智谱的 cogview-3-flash / cogview-4 / glm-image 都是纯文本输入，不能吃参考图。
+    # 换成支持 image-to-image 的厂商时，这里改成 True 并处理下面的 reference_image。
+    supports_reference = False
 
     def __init__(
         self,
@@ -80,8 +84,19 @@ class OpenAICompatImageProvider(ImageProvider):
         self._size_param = size_param
         self._timeout = timeout
         self._extra_params = extra_params or {}
+        self._warned_no_reference = False
 
-    async def generate(self, *, prompt: str) -> bytes:
+    async def generate(self, *, prompt: str, reference_image: Path | None = None) -> bytes:
+        # 厂商不支持参考图时**只提示一次**（避免每张图刷一条同样的日志）。
+        # 这里刻意不抛错：参考图是"锦上添花"，没有它也应该能出图 ——
+        # 角色一致性由角色卡里的 look_prompt（文本描述）兜底。
+        if reference_image is not None and not self._warned_no_reference:
+            logger.info(
+                "当前文生图模型 %s 不支持参考图，已退回纯文本描述（角色一致性靠 look_prompt）",
+                self._model,
+            )
+            self._warned_no_reference = True
+
         # 先铺厂商私有参数，再用必需字段覆盖它们 ——
         # 这样即使配置里写错（比如把 prompt 写进额外参数）也不会破坏请求契约。
         payload: dict = dict(self._extra_params)

@@ -2,13 +2,16 @@
 // 好处：token 管理、错误解析、统一异常只写一遍，组件里不用重复。
 
 import type {
+  Character,
   Drama,
   Episode,
   EpisodeDetail,
   GenerationTask,
+  Shot,
   SynopsisRead,
   TokenResponse,
   User,
+  VoiceOption,
 } from './types'
 
 const TOKEN_KEY = 'ai_drama_token'
@@ -145,6 +148,61 @@ export const api = {
 
   /** 镜头画面的地址（需要带 Authorization 头，所以要用 AuthMedia 组件取） */
   shotImagePath: (shotId: number) => `/api/v1/shots/${shotId}/image`,
+
+  /**
+   * 手动编辑一个镜头（分镜表里直接改）。
+   * 注意：改台词会让后端**作废**这个镜头派生的逐句音频（台词变了配音就没意义了）。
+   */
+  updateShot: (
+    shotId: number,
+    payload: {
+      shot_type?: string
+      camera?: string
+      description?: string
+      dialogue?: string
+      duration_sec?: number
+      image_prompt?: string
+      audio_prompt?: string
+    },
+  ) => request<Shot>(`/api/v1/shots/${shotId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  /** 这部剧的角色表（配音的选角依据 + 画面的外貌锚点） */
+  listCharacters: (dramaId: number) => request<Character[]>(`/api/v1/dramas/${dramaId}/characters`),
+
+  /** 可选音色（带实测基频，帮助判断男女声） */
+  listVoices: () => request<VoiceOption[]>('/api/v1/characters/voices'),
+
+  /** 改角色卡：人设、音色、外貌、职业、背景、锁定的外貌提示词 */
+  updateCharacter: (
+    characterId: number,
+    payload: {
+      gender?: string
+      age_group?: string
+      age?: number | null
+      appearance?: string
+      occupation?: string
+      background?: string
+      look_prompt?: string
+      voice?: string
+      speed?: number
+      pitch_shift?: number
+    },
+  ) =>
+    request<Character>(`/api/v1/characters/${characterId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  /** 为这部剧所有"有形象"的角色生成三视图（旁白会被后端自动跳过） */
+  generateTurnarounds: (dramaId: number, onlyMissing = true) =>
+    request<GenerationTask>(`/api/v1/dramas/${dramaId}/characters/turnarounds`, {
+      method: 'POST',
+      body: JSON.stringify({ only_missing: onlyMissing }),
+    }),
+
+  /** 角色三视图的地址（同样需要带 Authorization 头） */
+  characterTurnaroundPath: (characterId: number) =>
+    `/api/v1/characters/${characterId}/turnaround`,
 
   /** 为这一集的台词批量生成配音（TTS）。返回任务，前端轮询进度。 */
   generateAudio: (episodeId: number, onlyMissing = true) =>

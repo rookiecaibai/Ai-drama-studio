@@ -32,6 +32,28 @@ class DialogueLineRead(BaseModel):
     audio_error: str | None = None
 
 
+class ShotUpdate(BaseModel):
+    """用户手动修改一个镜头（在分镜表里直接编辑）。
+
+    为什么需要它：AI 生成的分镜只是"初稿"。用户最常做的修改就是
+    改画面描述、改台词、调时长 —— 不给这个能力，用户只能反复重生成整集。
+
+    **关于台词的特殊处理**（在 API 层实现）：
+    `dialogue` 是这个镜头里最"派生"的东西 —— 角色分配、情绪判断、语速、
+    每句音频全是从它解析出来的。所以改了台词，派生出来的一切都要作废，
+    否则会出现"台词改了，配音还是老台词"这种自相矛盾的状态。
+    改画面描述/提示词则**不会**作废旧图（图还在，只是可能不匹配了，用户可自行重生成）。
+    """
+
+    shot_type: str | None = Field(default=None, max_length=30)
+    camera: str | None = Field(default=None, max_length=60)
+    description: str | None = None
+    dialogue: str | None = None
+    duration_sec: float | None = Field(default=None, gt=0, le=60)
+    image_prompt: str | None = None
+    audio_prompt: str | None = None
+
+
 class ShotRead(ShotBase):
     # from_attributes=True 让 Pydantic 能直接从 ORM 对象读属性，
     # 否则要手写一堆 {"a": obj.a, ...} 的转换代码

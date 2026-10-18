@@ -19,8 +19,9 @@
 import hashlib
 import re
 from io import BytesIO
+from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from app.core.config import get_settings
 from app.services.images.base import ImageProvider
@@ -52,13 +53,30 @@ def _wrap(text: str, width: int, max_lines: int) -> list[str]:
 
 class MockImageProvider(ImageProvider):
     name = "mock"
+    #: mock **支持**参考图，而且会把参考图真的贴到输出上。
+    #:
+    #: 为什么 mock 要费劲做这件事：这样"参考图有没有被正确地传到 Provider"就成了
+    #: 一个**可断言**的事实（测试能比较"有参考图 / 没参考图"两次输出的差异），
+    #: 而不是只靠读代码相信它传过去了。
+    supports_reference = True
 
-    async def generate(self, *, prompt: str) -> bytes:
+    async def generate(self, *, prompt: str, reference_image: Path | None = None) -> bytes:
         width, height = _canvas_size()
         digest = hashlib.sha256(prompt.encode("utf-8")).digest()
         background = tuple(20 + digest[i] % 70 for i in range(3))
 
         image = Image.new("RGB", (width, height), background)
+        reference_note = ""
+        if reference_image is not None and reference_image.is_file():
+            # 把参考图等比铺满画布，再压暗一点让文字仍然可读
+            try:
+                ref = Image.open(reference_image).convert("RGB")
+                image = ImageOps.fit(ref, (width, height))
+                image = Image.blend(image, Image.new("RGB", (width, height), (0, 0, 0)), 0.45)
+                reference_note = f"reference={reference_image.name}"
+            except Exception:  # noqa: BLE001 —— 参考图坏了不该让整张图失败
+                reference_note = "reference=unreadable"
+
         draw = ImageDraw.Draw(image)
 
         # 字号跟着画布宽度走，保证不同尺寸下版式比例一致
@@ -89,7 +107,7 @@ class MockImageProvider(ImageProvider):
 
         draw.text(
             (margin, height - margin - small_size - 4),
-            f"size={width}x{height}  prompt sha256={digest.hex()[:12]}",
+            f"size={width}x{height}  prompt sha256={digest.hex()[:12]}  {reference_note}".strip(),
             fill=(170, 180, 190),
             font=small_font,
         )

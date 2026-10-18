@@ -232,3 +232,120 @@ video.player {
   background: #000;
   display: block;
 }
+
+/* ── 角色卡面板 ── */
+.character-panel {
+  margin: 16px 0 20px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.character-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.character-panel-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.character-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+.character-card {
+  flex: 1 1 420px;
+  min-width: 340px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.character-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.character-card-body {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+/* 三视图缩略图：竖着排的三视图，给一个固定宽度就够了 */
+.character-sheet { width: 108px; flex: 0 0 108px; }
+img.turnaround {
+  width: 108px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+.character-fields {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+.character-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.character-fields label.wide { grid-column: 1 / -1; }
+.character-fields input,
+.character-fields select,
+.character-fields textarea {
+  width: 100%;
+  padding: 5px 7px;
+  font-size: 13px;
+  color: var(--text);
+  background: #0e1318;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: inherit;
+  resize: vertical;
+}
+.character-card-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.character-card-foot button { font-size: 12px; padding: 5px 12px; }
+
+/* ── 镜头行内编辑 ── */
+.shot-actions { width: 116px; white-space: nowrap; }
+.shot-actions button { font-size: 12px; padding: 4px 10px; margin-right: 4px; }
+tr.editing { background: rgba(79, 142, 247, 0.08); }
+input.mini {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: #0e1318;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+input.mini.num { width: 70px; }
+tr.editing td textarea {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 5px 7px;
+  font-size: 12px;
+  color: var(--text);
+  background: #0e1318;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  resize: vertical;
+}
+tr.editing td textarea.mono { font-family: ui-monospace, Consolas, monospace; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+

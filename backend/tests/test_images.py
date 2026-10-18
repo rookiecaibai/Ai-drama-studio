@@ -96,7 +96,7 @@ def test_image_generation_failure_is_isolated_per_shot(client):
         def __init__(self):
             self.calls = 0
 
-        async def generate(self, *, prompt: str) -> bytes:
+        async def generate(self, *, prompt: str, reference_image=None) -> bytes:
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("模拟第一张图生成超时")
@@ -126,7 +126,7 @@ def test_all_images_failed_marks_task_failed(client):
     class DeadProvider(ImageProvider):
         name = "dead"
 
-        async def generate(self, *, prompt: str) -> bytes:
+        async def generate(self, *, prompt: str, reference_image=None) -> bytes:
             raise RuntimeError("模型服务不可用")
 
     client.app.dependency_overrides[get_image_provider] = lambda: DeadProvider()
@@ -206,7 +206,7 @@ def test_jpeg_from_provider_is_stored_and_served_as_jpeg(client):
     class JpegProvider(ImageProvider):
         name = "fake-jpeg"
 
-        async def generate(self, *, prompt: str) -> bytes:
+        async def generate(self, *, prompt: str, reference_image=None) -> bytes:
             return b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 2000
 
     client.app.dependency_overrides[get_image_provider] = lambda: JpegProvider()
@@ -243,7 +243,7 @@ def test_switching_image_format_removes_old_file(client):
     class JpegProvider(ImageProvider):
         name = "fake-jpeg"
 
-        async def generate(self, *, prompt: str) -> bytes:
+        async def generate(self, *, prompt: str, reference_image=None) -> bytes:
             return b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 2000
 
     client.app.dependency_overrides[get_image_provider] = lambda: JpegProvider()

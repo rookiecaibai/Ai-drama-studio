@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Episode, GenerationLog, GenerationTask, Shot
+from app.db.models import Drama, Episode, GenerationLog, GenerationTask, Shot
+from app.services.character_sheet_service import generate_turnarounds_for_drama
 from app.services.clip_service import generate_clips_for_episode
 from app.services.image_service import generate_images_for_episode
 from app.services.images.base import ImageProvider
@@ -385,6 +386,74 @@ async def run_clip_task(
         if planned > 0 and succeeded == 0:
             task.status = "failed"
             task.error = f"{planned} 个动态片段全部生成失败，请查看各镜头的说明"
+            _finish_log(db, log_id, "failed")
+        else:
+            task.status = "succeeded"
+            _finish_log(db, log_id, "success")
+
+        task.finished_at = _now()
+        db.commit()
+        logger.info("任务 %s 结束：计划 %s 个，成功 %s 个", task_id, planned, succeeded)
+
+
+async def run_turnaround_task(
+    *,
+    task_id: int,
+    log_id: int,
+    provider: ImageProvider,
+    session_factory: sessionmaker[Session],
+    only_missing: bool = True,
+) -> None:
+    """后台为一部剧的所有角色生成三视图（设定图）。
+
+    和别的任务同构（同一张任务表、同一套状态机、同一个轮询接口），
+    区别在**粒度**：这是**剧级**任务，挂在 task.drama_id 上，不属于任何一集。
+    这也是为什么 GenerationTask.episode_id 被改成可空 —— 一张任务表装两种粒度。
+    """
+    with session_factory() as db:
+        task = db.get(GenerationTask, task_id)
+        if task is None:
+            logger.warning("任务 %s 不存在，跳过", task_id)
+            return
+
+        task.status = "running"
+        task.started_at = _now()
+        db.commit()
+        logger.info("任务 %s 开始生成角色三视图（provider=%s）", task_id, provider.name)
+
+        def _on_total(total: int) -> None:
+            task.total = total
+            db.commit()
+
+        def _on_progress() -> None:
+            task.done += 1
+            db.commit()
+
+        planned = succeeded = 0
+        try:
+            drama = db.get(Drama, task.drama_id) if task.drama_id else None
+            if drama is None:
+                raise ValueError("任务没有关联的短剧（drama_id 为空），无法生成角色三视图")
+            planned, succeeded = await generate_turnarounds_for_drama(
+                db,
+                drama=drama,
+                provider=provider,
+                only_missing=only_missing,
+                on_total=_on_total,
+                on_progress=_on_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            task.status = "failed"
+            task.error = str(exc)[:500]
+            task.finished_at = _now()
+            db.commit()
+            _finish_log(db, log_id, "failed")
+            logger.exception("任务 %s 失败", task_id)
+            return
+
+        if planned > 0 and succeeded == 0:
+            task.status = "failed"
+            task.error = f"{planned} 个角色的三视图全部生成失败，请查看各角色的说明"
             _finish_log(db, log_id, "failed")
         else:
             task.status = "succeeded"

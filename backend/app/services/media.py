@@ -86,6 +86,14 @@ def shot_clip_rel_path(shot_id: int) -> str:
     return f"clips/shots/{shot_id}.mp4"
 
 
+def character_sheet_rel_path(character_id: int, extension: str = "png") -> str:
+    """角色三视图存哪里（一个角色一张设定图，重新生成直接覆盖）。
+
+    扩展名由调用方按**文件头**决定，而不是假设厂商返回 PNG —— 智谱实际返回 JPEG。
+    """
+    return f"characters/{character_id}/sheet.{extension.lstrip('.')}"
+
+
 def line_audio_rel_path(line_id: int) -> str:
     """单句台词的音频存哪里。
 

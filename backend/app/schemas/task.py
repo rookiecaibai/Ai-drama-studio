@@ -9,8 +9,13 @@ class GenerationTaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    episode_id: int
-    kind: str  # shots=生成分镜，images=生成画面
+    # 任务有两种粒度：集级（分镜/画面/动态片段/配音/成片）有 episode_id；
+    # 剧级（角色三视图）只有 drama_id、episode_id 为空。所以两个字段都必须可空，
+    # 否则剧级任务的响应会直接 500（ResponseValidationError，我们踩过一次）。
+    episode_id: int | None = None
+    drama_id: int | None = None
+    # shots=分镜 images=画面 clips=动态片段 audio=配音 video=成片 turnaround=角色三视图
+    kind: str
     status: str  # pending / running / succeeded / failed
     provider: str
     shot_count: int

@@ -148,6 +148,11 @@ class Settings(BaseSettings):
     # 每用户每天最多生成多少个动态镜头（视频模型比图片贵得多，单独设限）
     daily_clip_limit: int = 30
 
+    # 每用户每天最多生成多少张角色三视图。
+    # 单独设限的理由：三视图是"一张图 = 一次调用"，而且用户会反复调角色卡重生成，
+    # 和"整集批量出图"是两种完全不同的使用节奏，混在一个额度里会互相挤占。
+    daily_turnaround_limit: int = 20
+
     # 视频厂商的私有参数透传（JSON 字符串），格式见 IMAGE_EXTRA_PARAMS 的说明。
     # 例：VIDEO_EXTRA_PARAMS={"watermark_enabled": false}
     video_extra_params: str = ""

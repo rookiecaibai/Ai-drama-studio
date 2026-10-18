@@ -1,13 +1,20 @@
 """短剧与剧集相关接口（都需要登录，且只能操作自己的资源）。"""
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, LlmProvider, QuotaServiceDep
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    ImageProviderDep,
+    LlmProvider,
+    QuotaServiceDep,
+    SessionFactoryDep,
+)
 from app.core.errors import ConflictError, NotFoundError
-from app.db.models import Character, DialogueLine, Drama, Episode, Shot, User
-from app.schemas.character import CharacterRead
+from app.db.models import Character, DialogueLine, Drama, Episode, GenerationTask, Shot, User
+from app.schemas.character import CharacterRead, TurnaroundGenerateRequest
 from app.schemas.drama import DramaCreate, DramaDetail, DramaRead, DramaUpdate
 from app.schemas.episode import (
     EpisodeCreate,
@@ -15,10 +22,12 @@ from app.schemas.episode import (
     SynopsisGenerateRequest,
     SynopsisRead,
 )
+from app.schemas.task import GenerationTaskRead
 from app.services import media
 from app.services.cast_service import analyze_cast
 from app.services.quota import QuotaService
 from app.services.synopsis_service import generate_synopsis
+from app.services.task_service import run_turnaround_task
 
 router = APIRouter(prefix="/dramas", tags=["dramas"])
 
@@ -139,6 +148,65 @@ def list_characters(drama_id: int, db: DbSession, user: CurrentUser) -> list[Cha
     return list(
         db.scalars(select(Character).where(Character.drama_id == drama.id).order_by(Character.id))
     )
+
+
+@router.post(
+    "/{drama_id}/characters/turnarounds",
+    response_model=GenerationTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="为这部剧的角色生成三视图（设定图，异步）",
+)
+def create_turnaround_task(
+    drama_id: int,
+    payload: TurnaroundGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    user: CurrentUser,
+    provider: ImageProviderDep,
+    quota: QuotaServiceDep,
+    session_factory: SessionFactoryDep,
+) -> GenerationTask:
+    """给角色画"三视图"：正面、侧面、背面并排的设定图。
+
+    **它是画面的上游**：用户先把角色定下来（看得见长什么样），再去画每个镜头，
+    这样"角色不对"的问题在花掉整集画面预算之前就暴露了。
+
+    它是**剧级**任务（不属于某一集），所以任务行挂 `drama_id` 而不是 `episode_id`。
+    """
+    drama = _get_owned_drama(db, drama_id, user)
+
+    quota.ensure_allowed(db, user.id, kind="turnaround")
+    log = quota.record(
+        db,
+        user_id=user.id,
+        # 剧级操作，不属于某一集 —— 这和"用户还没建剧就先起草大纲"是同一类情况，
+        # 所以 episode_id 允许为空（流水表早就为此留了口子）。
+        episode_id=None,
+        provider=provider.name,
+        kind="turnaround",
+    )
+
+    task = GenerationTask(
+        user_id=user.id,
+        drama_id=drama.id,
+        episode_id=None,  # 剧级任务，不属于任何一集
+        kind="turnaround",
+        provider=provider.name,
+        shot_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    background_tasks.add_task(
+        run_turnaround_task,
+        task_id=task.id,
+        log_id=log.id,
+        provider=provider,
+        session_factory=session_factory,
+        only_missing=payload.only_missing,
+    )
+    return task
 
 
 @router.post(

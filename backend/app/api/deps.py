@@ -63,6 +63,7 @@ def get_quota_service() -> QuotaService:
             "audio": settings.daily_audio_limit,
             "video": settings.daily_video_limit,
             "clips": settings.daily_clip_limit,
+            "turnaround": settings.daily_turnaround_limit,
         }
     )
 

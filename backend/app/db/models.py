@@ -101,6 +101,28 @@ class Character(TimestampMixin, Base):
     personality: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 性格/说话风格（喂给情感分析）
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
+    # ── 角色卡：给"画角色"和"画镜头"用的信息 ──
+    #
+    # 为什么要单独存一份"外貌"，而不是让模型每次自己发挥：
+    # 同一个角色要在很多镜头里出现，长相必须稳定。但**文生图模型没有记忆** ——
+    # 每次调用都是全新的生成。所以唯一的办法是把外貌固定成一段文字，
+    # 画每个镜头时都把它带上（见 look_prompt）。这是当前厂商不支持参考图时
+    # 唯一能做到的"角色一致性"手段，也是最朴素有效的那种。
+    age: Mapped[int | None] = mapped_column(default=None)  # 具体年龄（如 28）；age_group 仍用于选音色
+    appearance: Mapped[str] = mapped_column(
+        Text, default="", nullable=False
+    )  # 外貌：发型/脸型/体型/常穿的衣服
+    occupation: Mapped[str] = mapped_column(String(60), default="", nullable=False)  # 职业
+    background: Mapped[str] = mapped_column(Text, default="", nullable=False)  # 背景故事
+    # 锁定的外貌提示词：**所有镜头画这个角色时都会带上它**。
+    # 为空时由 appearance / age / occupation 自动拼出来；用户也可以手改（改了就以后者为锚）。
+    look_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # 角色三视图（正面/侧面/背面并排的设定图）：路径 + 失败原因。
+    # 它有两个作用：① 给用户一个"这个角色长这样"的确认物；
+    # ② 支持参考图的厂商可以直接拿它当条件输入（见 ImageProvider.supports_reference）。
+    turnaround_path: Mapped[str | None] = mapped_column(String(255), default=None)
+    turnaround_error: Mapped[str | None] = mapped_column(Text, default=None)
+
     drama: Mapped[Drama] = relationship(back_populates="characters")
     lines: Mapped[list["DialogueLine"]] = relationship(back_populates="character")
 
@@ -234,8 +256,19 @@ class GenerationTask(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    episode_id: Mapped[int] = mapped_column(ForeignKey("episodes.id", ondelete="CASCADE"), index=True)
-    # 任务类型：shots=生成分镜文本，images=生成每个镜头的画面
+    # 任务有两种粒度：
+    #   集级（分镜/画面/动态片段/配音/成片）-> episode_id 有值
+    #   剧级（角色三视图，它不属于任何一集）  -> drama_id 有值、episode_id 为空
+    # 所以 episode_id 必须**可为空**。这个"同一张表装两种粒度"的做法是有代价的
+    # （查询时要记得两种都考虑），但比再开一张任务表更简单 —— 状态机和轮询逻辑只写一份。
+    episode_id: Mapped[int | None] = mapped_column(
+        ForeignKey("episodes.id", ondelete="CASCADE"), default=None, index=True
+    )
+    drama_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dramas.id", ondelete="CASCADE"), default=None, index=True
+    )
+    # 任务类型：shots=生成分镜文本，images=生成每个镜头的画面，
+    # clips=生成动态片段，audio=配音，video=合成，turnaround=角色三视图
     # 同一张任务表支持多种任务，前端用同一套轮询逻辑处理
     kind: Mapped[str] = mapped_column(String(20), default="shots", nullable=False)
     # pending -> running -> succeeded / failed

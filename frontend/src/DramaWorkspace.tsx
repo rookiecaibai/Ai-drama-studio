@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import AuthMedia from './AuthMedia'
-import type { Drama, Episode, EpisodeDetail, GenerationTask, User } from './types'
+import CharacterPanel from './CharacterPanel'
+import type {
+  Character,
+  Drama,
+  Episode,
+  EpisodeDetail,
+  GenerationTask,
+  Shot,
+  User,
+} from './types'
 
 const TASK_STATUS_TEXT: Record<GenerationTask['status'], string> = {
   pending: '排队中',
@@ -17,6 +26,7 @@ const TASK_KIND_TEXT: Record<GenerationTask['kind'], string> = {
   audio: '生成配音',
   video: '合成视频',
   cast: '分析角色',
+  turnaround: '生成角色三视图',
 }
 
 export default function DramaWorkspace({
@@ -52,6 +62,19 @@ export default function DramaWorkspace({
   // 画面/配音/成片重新生成后，URL 没变但内容变了 —— 用这个版本号强制媒体组件重新拉取
   const [mediaVersion, setMediaVersion] = useState(0)
 
+  // 这部剧的角色表（配音的选角依据 + 画面的外貌锚点）
+  const [characters, setCharacters] = useState<Character[]>([])
+  // 正在编辑哪个镜头（null = 都没在编辑）+ 该镜头的草稿
+  const [editingShotId, setEditingShotId] = useState<number | null>(null)
+  const [shotDraft, setShotDraft] = useState<{
+    shot_type: string
+    camera: string
+    description: string
+    dialogue: string
+    duration_sec: string
+    image_prompt: string
+  } | null>(null)
+
   const loadedTaskId = useRef<number | null>(null)
 
   const showError = (e: unknown) => setError(e instanceof Error ? e.message : '出错了')
@@ -86,13 +109,26 @@ export default function DramaWorkspace({
     }
   }, [])
 
+  const loadCharacters = useCallback(async (dramaId: number) => {
+    try {
+      setCharacters(await api.listCharacters(dramaId))
+    } catch (e) {
+      showError(e)
+    }
+  }, [])
+
   useEffect(() => {
     void loadDramas()
   }, [loadDramas])
 
   useEffect(() => {
-    if (selectedDramaId !== null) void loadEpisodes(selectedDramaId)
-  }, [selectedDramaId, loadEpisodes])
+    if (selectedDramaId !== null) {
+      void loadEpisodes(selectedDramaId)
+      void loadCharacters(selectedDramaId)
+    } else {
+      setCharacters([])
+    }
+  }, [selectedDramaId, loadEpisodes, loadCharacters])
 
   // 任务轮询：每 0.8 秒查一次，到达终态后刷新分镜
   useEffect(() => {
@@ -102,7 +138,12 @@ export default function DramaWorkspace({
         loadedTaskId.current = task.id
         // 画面/配音/成片任务成功后，媒体内容变了，要强制重新拉取
         if (task.kind !== 'shots') setMediaVersion((v) => v + 1)
-        void loadEpisode(task.episode_id)
+        if (task.kind === 'turnaround') {
+          // 剧级任务：刷新角色表（三视图是挂在角色上的），不涉及某一集
+          if (selectedDramaId !== null) void loadCharacters(selectedDramaId)
+        } else if (task.episode_id !== null) {
+          void loadEpisode(task.episode_id)
+        }
       }
       return
     }
@@ -303,6 +344,60 @@ export default function DramaWorkspace({
       setTask(await api.generateClips(selectedEpisode.id, true))
     } catch (err) {
       showError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 手动编辑镜头。
+   *
+   * 为什么要给这个能力：AI 生成的分镜只是初稿，用户最常改的就是
+   * 画面描述、台词、时长。不能编辑就只能整集重生成（还花钱）。
+   *
+   * 一个必须让用户知道的后果：**改台词会作废这个镜头的配音**
+   * （后端会删掉逐句台词行和音频文件）—— 因为台词变了，旧配音就是错的。
+   * 界面上会提示，避免用户以为音频"凭空消失"。
+   */
+  function beginEditShot(shot: Shot) {
+    setEditingShotId(shot.id)
+    setShotDraft({
+      shot_type: shot.shot_type,
+      camera: shot.camera,
+      description: shot.description,
+      dialogue: shot.dialogue,
+      duration_sec: String(shot.duration_sec),
+      image_prompt: shot.image_prompt,
+    })
+  }
+
+  function cancelEditShot() {
+    setEditingShotId(null)
+    setShotDraft(null)
+  }
+
+  function patchShotDraft(key: 'shot_type' | 'camera' | 'description' | 'dialogue' | 'duration_sec' | 'image_prompt', value: string) {
+    setShotDraft((prev) => (prev ? { ...prev, [key]: value } : prev))
+  }
+
+  async function saveShot(shotId: number) {
+    if (!shotDraft) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.updateShot(shotId, {
+        shot_type: shotDraft.shot_type,
+        camera: shotDraft.camera,
+        description: shotDraft.description,
+        dialogue: shotDraft.dialogue,
+        duration_sec: Number(shotDraft.duration_sec) || 3,
+        image_prompt: shotDraft.image_prompt,
+      })
+      cancelEditShot()
+      if (selectedEpisode) await loadEpisode(selectedEpisode.id)
+      setMediaVersion((v) => v + 1) // 台词改了，后端已经把音频作废
+    } catch (e) {
+      showError(e)
     } finally {
       setBusy(false)
     }
@@ -528,6 +623,18 @@ export default function DramaWorkspace({
                     </p>
                   )}
 
+                  {selectedDramaId !== null && (
+                    <CharacterPanel
+                      dramaId={selectedDramaId}
+                      characters={characters}
+                      version={mediaVersion}
+                      onChanged={() => {
+                        void loadCharacters(selectedDramaId)
+                        setMediaVersion((v) => v + 1)
+                      }}
+                    />
+                  )}
+
                   <table className="shots">
                     <thead>
                       <tr>
@@ -539,11 +646,14 @@ export default function DramaWorkspace({
                         <th>画面描述</th>
                         <th>台词 / 旁白</th>
                         <th>配音</th>
+                        <th>操作</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedEpisode.shots.map((s) => (
-                        <tr key={s.id}>
+                      {selectedEpisode.shots.map((s) => {
+                        const editing = editingShotId === s.id && shotDraft !== null
+                        return (
+                        <tr key={s.id} className={editing ? 'editing' : undefined}>
                           <td>{s.number}</td>
                           <td className="shot-image">
                             {s.clip_path ? (
@@ -588,11 +698,74 @@ export default function DramaWorkspace({
                               </span>
                             )}
                           </td>
-                          <td>{s.shot_type}</td>
-                          <td>{s.camera}</td>
-                          <td>{s.duration_sec}s</td>
-                          <td>{s.description}</td>
-                          <td>{s.dialogue}</td>
+
+                          {editing && shotDraft ? (
+                            <>
+                              <td>
+                                <input
+                                  className="mini"
+                                  value={shotDraft.shot_type}
+                                  onChange={(e) => patchShotDraft('shot_type', e.target.value)}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  className="mini"
+                                  value={shotDraft.camera}
+                                  onChange={(e) => patchShotDraft('camera', e.target.value)}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  className="mini num"
+                                  type="number"
+                                  step={0.5}
+                                  min={0.5}
+                                  max={60}
+                                  value={shotDraft.duration_sec}
+                                  onChange={(e) => patchShotDraft('duration_sec', e.target.value)}
+                                />
+                              </td>
+                              <td>
+                                <textarea
+                                  rows={3}
+                                  value={shotDraft.description}
+                                  onChange={(e) => patchShotDraft('description', e.target.value)}
+                                  placeholder="画面描述（中文）"
+                                />
+                                <textarea
+                                  rows={2}
+                                  className="mono"
+                                  value={shotDraft.image_prompt}
+                                  onChange={(e) => patchShotDraft('image_prompt', e.target.value)}
+                                  placeholder="图像提示词（英文更准，可留空用描述）"
+                                  title="这一栏直接决定画面。注意：出场角色的外貌会自动拼在它前面"
+                                />
+                              </td>
+                              <td>
+                                <textarea
+                                  rows={3}
+                                  value={shotDraft.dialogue}
+                                  onChange={(e) => patchShotDraft('dialogue', e.target.value)}
+                                  placeholder="格式：角色名：台词"
+                                />
+                                {shotDraft.dialogue !== s.dialogue ? (
+                                  <span className="muted small">⚠️ 改台词会作废本镜头的配音</span>
+                                ) : (
+                                  <span className="muted small">每句一行，写成「角色名：台词」</span>
+                                )}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td>{s.shot_type}</td>
+                              <td>{s.camera}</td>
+                              <td>{s.duration_sec}s</td>
+                              <td>{s.description}</td>
+                              <td>{s.dialogue}</td>
+                            </>
+                          )}
+
                           <td className="shot-audio">
                             {s.audio_path ? (
                               <AuthMedia
@@ -609,11 +782,29 @@ export default function DramaWorkspace({
                               <span className="muted">未生成</span>
                             )}
                           </td>
+
+                          <td className="shot-actions">
+                            {editing ? (
+                              <>
+                                <button onClick={() => void saveShot(s.id)} disabled={busy}>
+                                  保存
+                                </button>
+                                <button className="secondary" onClick={cancelEditShot} disabled={busy}>
+                                  取消
+                                </button>
+                              </>
+                            ) : (
+                              <button className="secondary" onClick={() => beginEditShot(s)}>
+                                编辑
+                              </button>
+                            )}
+                          </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                       {selectedEpisode.shots.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="muted">还没有分镜 —— 点"AI 生成分镜"</td>
+                          <td colSpan={9} className="muted">还没有分镜 —— 点"AI 生成分镜"</td>
                         </tr>
                       )}
                     </tbody>
