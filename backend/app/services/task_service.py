@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Character, Drama, Episode, GenerationLog, GenerationTask, Shot
+from app.db.models import Drama, Episode, GenerationLog, GenerationTask, Shot
 from app.services.character_sheet_service import generate_turnarounds_for_drama
 from app.services.clip_service import generate_clips_for_episode
 from app.services.image_service import generate_images_for_episode
@@ -191,15 +191,7 @@ async def run_image_task(
         # 全部失败和"部分成功"要区分：全挂了对用户来说就是失败
         if planned > 0 and succeeded == 0:
             task.status = "failed"
-            # 把**第一个真实原因**带出来。只说"请查看各镜头的说明"用户根本不知道发生了什么 ——
-            # 实测用户看到的就是这句，然后问"为什么生成失败"。
-            first_error = db.scalar(
-                select(Shot.image_error)
-                .where(Shot.episode_id == task.episode_id, Shot.image_error.is_not(None))
-                .limit(1)
-            )
-            detail = f"原因：{first_error[:200]}" if first_error else "请查看各镜头的说明"
-            task.error = f"{planned} 张画面全部生成失败（{detail}）"
+            task.error = f"{planned} 张画面全部生成失败，请查看各镜头的说明"
             _finish_log(db, log_id, "failed")
         else:
             task.status = "succeeded"
@@ -461,16 +453,7 @@ async def run_turnaround_task(
 
         if planned > 0 and succeeded == 0:
             task.status = "failed"
-            first_error = db.scalar(
-                select(Character.turnaround_error)
-                .where(
-                    Character.drama_id == task.drama_id,
-                    Character.turnaround_error.is_not(None),
-                )
-                .limit(1)
-            )
-            detail = f"原因：{first_error[:200]}" if first_error else "请查看各角色的说明"
-            task.error = f"{planned} 个角色的三视图全部生成失败（{detail}）"
+            task.error = f"{planned} 个角色的三视图全部生成失败，请查看各角色的说明"
             _finish_log(db, log_id, "failed")
         else:
             task.status = "succeeded"
