@@ -61,14 +61,18 @@ function toDraft(settings: DramaSettings): Draft {
 export default function DramaSettingsPanel({
   dramaId,
   onSaved,
+  onDeleted,
 }: {
   dramaId: number
   /** 保存后通知父组件（改名要刷新左侧列表） */
   onSaved: () => void
+  /** 删除成功后通知父组件（清空当前选择、刷新列表） */
+  onDeleted: () => void
 }) {
   const [settings, setSettings] = useState<DramaSettings | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -159,6 +163,34 @@ export default function DramaSettingsPanel({
       setError(err instanceof Error ? err.message : '操作失败')
     } finally {
       setBusy(false)
+    }
+  }
+
+  /**
+   * 删除整部短剧。
+   *
+   * **这个动作不可恢复**：后端会级联删掉剧集、分镜、逐句台词、角色，
+   * 以及磁盘上所有已生成的图片 / 音频 / 动态片段 / 成片。
+   * 所以它被放在"设置 → 危险操作"里，而不是列表标题旁边 ——
+   * 列表里紧挨标题的删除按钮点错一次就没了。
+   */
+  async function removeDrama() {
+    const ok = window.confirm(
+      `确定删除《${settings?.title ?? ''}》？\n\n` +
+        '这会同时删除：全部剧集与分镜、角色卡与三视图、' +
+        '以及所有已生成的画面 / 配音 / 动态片段 / 成片。\n\n' +
+        '删除后无法恢复。',
+    )
+    if (!ok) return
+    setDeleting(true)
+    setError('')
+    try {
+      await api.deleteDrama(dramaId)
+      onDeleted()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -310,6 +342,19 @@ export default function DramaSettingsPanel({
         {changedKinds.length > 0 && (
           <span className="muted small">将更新：{changedKinds.join(' / ')}</span>
         )}
+      </div>
+
+      {/* 危险操作放最后、并要求先展开"短剧设置"才能看到 —— 降低误删的可能 */}
+      <div className="danger-zone">
+        <h4>危险操作</h4>
+        <p className="muted small">
+          删除这部短剧会<b>级联删除</b>全部剧集、分镜、角色卡与三视图，
+          以及磁盘上已生成的画面 / 配音 / 动态片段 / 成片。
+          <b>删除后无法恢复。</b>
+        </p>
+        <button className="danger" onClick={() => void removeDrama()} disabled={deleting || busy}>
+          {deleting ? '删除中…' : `删除《${settings.title}》`}
+        </button>
       </div>
     </div>
   )

@@ -412,4 +412,23 @@ details.collapsible[open] > summary { margin-bottom: 10px; }
   font-family: inherit;
 }
 
+/* ── 危险操作区（删除短剧）── */
+.danger-zone {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(224, 91, 91, 0.5);
+}
+.danger-zone h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--danger);
+}
+.danger-zone p { margin: 0 0 8px; max-width: 620px; }
+button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+button.danger:disabled { opacity: 0.6; }
+
+
 

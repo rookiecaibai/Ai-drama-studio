@@ -404,15 +404,21 @@ export default function DramaWorkspace({
     }
   }
 
-  async function removeDrama(id: number) {
-    if (!window.confirm('确定删除这部短剧？剧集和分镜会一起删除。')) return
-    try {
-      await api.deleteDrama(id)
-      setDramas(dramas.filter((d) => d.id !== id))
-      if (selectedDramaId === id) setSelectedDramaId(null)
-    } catch (e) {
-      showError(e)
-    }
+  /**
+   * 删除短剧后的收尾（删除动作本身在「短剧设置」面板里）。
+   *
+   * 为什么把删除从"列表右侧的按钮"挪到设置里：
+   * 列表里紧挨着标题的删除按钮太容易被误点，而删短剧会**级联删掉剧集、分镜、
+   * 角色、以及磁盘上所有生成的图片/音频/视频** —— 不可恢复。
+   * 放进设置面板后，用户必须先展开设置、看到"危险操作"的说明，才可能点到它。
+   */
+  function handleDramaDeleted() {
+    setSelectedDramaId(null)
+    setSelectedEpisode(null)
+    setEpisodes([])
+    setCharacters([])
+    setTask(null)
+    void loadDramas()
   }
 
   return (
@@ -466,10 +472,8 @@ export default function DramaWorkspace({
                 className={d.id === selectedDramaId ? 'active' : ''}
                 onClick={() => setSelectedDramaId(d.id)}
               >
+                {/* 删除按钮挪到「短剧设置」里了：列表里紧挨标题的删除按钮太容易误点 */}
                 <span>{d.title}</span>
-                <button className="link" onClick={(e) => { e.stopPropagation(); void removeDrama(d.id) }}>
-                  删除
-                </button>
               </li>
             ))}
             {dramas.length === 0 && <li className="muted">还没有短剧，先建一部吧</li>}
@@ -490,6 +494,7 @@ export default function DramaWorkspace({
                   onSaved={() => {
                     void loadDramas()
                   }}
+                  onDeleted={handleDramaDeleted}
                 />
               </details>
 
@@ -497,16 +502,27 @@ export default function DramaWorkspace({
                 角色卡提到**剧级**：它本来就是按剧存的（characters.drama_id），
                 这一集的每个镜头都会参考它。放在这里的好处是
                 **不用先点开某一集**就能看到/编辑角色，先定角色再写剧本更顺。
+                外面套一层 <details> 是为了能收起 —— 它内容很长（每个角色一张三视图 + 9 个字段），
+                展开时会把下面的剧集列表挤得很远。
               */}
-              <CharacterPanel
-                dramaId={selectedDramaId}
-                characters={characters}
-                version={mediaVersion}
-                onChanged={() => {
-                  void loadCharacters(selectedDramaId)
-                  setMediaVersion((v) => v + 1)
-                }}
-              />
+              <details className="collapsible">
+                <summary>
+                  角色卡与三视图（{characters.length} 个角色
+                  {characters.filter((c) => c.turnaround_path).length > 0
+                    ? ` · ${characters.filter((c) => c.turnaround_path).length} 个已有三视图`
+                    : ''}
+                  ）
+                </summary>
+                <CharacterPanel
+                  dramaId={selectedDramaId}
+                  characters={characters}
+                  version={mediaVersion}
+                  onChanged={() => {
+                    void loadCharacters(selectedDramaId)
+                    setMediaVersion((v) => v + 1)
+                  }}
+                />
+              </details>
 
               <h2>剧集</h2>
               <div className="episode-header">

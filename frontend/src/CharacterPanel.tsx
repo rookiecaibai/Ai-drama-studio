@@ -120,7 +120,6 @@ export default function CharacterPanel({
   if (characters.length === 0) {
     return (
       <div className="character-panel">
-        <h3>角色卡</h3>
         <p className="muted">
           还没有角色表。先点「生成配音」或「分析角色」，AI 会从剧本里整理出人物；也可以等生成分镜后自动出现。
         </p>
@@ -131,7 +130,8 @@ export default function CharacterPanel({
   return (
     <div className="character-panel">
       <div className="character-panel-head">
-        <h3>角色卡（{characters.length} 个）</h3>
+        {/* 标题由外层 <details> 的 summary 承担，这里只放操作与提示 */}
+        <span className="muted small">先定角色，再画镜头：外貌描述会拼进每张画面</span>
         <button
           className="secondary"
           onClick={() =>
