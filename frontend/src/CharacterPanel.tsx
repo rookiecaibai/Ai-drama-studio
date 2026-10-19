@@ -57,6 +57,16 @@ function toDraft(character: Character): Draft {
   }
 }
 
+/** 新增角色表单的初始值 */
+const EMPTY_ADD = {
+  name: '',
+  gender: 'unknown',
+  age: '',
+  occupation: '',
+  appearance: '',
+  background: '',
+}
+
 export default function CharacterPanel({
   dramaId,
   characters,
@@ -74,6 +84,11 @@ export default function CharacterPanel({
   const [drafts, setDrafts] = useState<Record<number, Draft>>({})
   const [savingId, setSavingId] = useState<number | null>(null)
   const [error, setError] = useState('')
+  // 手动新增角色（后续集数出新角色时用）
+  const [showAdd, setShowAdd] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState('')
+  const [addDraft, setAddDraft] = useState(EMPTY_ADD)
 
   useEffect(() => {
     void api
@@ -115,48 +130,164 @@ export default function CharacterPanel({
     }
   }
 
-  const isNarrator = (name: string) => ['旁白', '画外音', '解说'].includes(name)
-
-  if (characters.length === 0) {
-    return (
-      <div className="character-panel">
-        <p className="muted">
-          还没有角色表。先点「生成配音」或「分析角色」，AI 会从剧本里整理出人物；也可以等生成分镜后自动出现。
-        </p>
-      </div>
-    )
+  /**
+   * 手动新增角色。
+   *
+   * 为什么需要：角色表原来是纯 AI 分析出来的（扫台词判断谁在说话），
+   * 所以"只出现在画面里、没有台词"的人它发现不了；而且新角色第一次出现时
+   * AI 还没分析过，用户只能干等。加完之后会立刻按性别/年龄配好音色，
+   * 所以马上就能生成三视图、也能配音。
+   */
+  async function submitAdd() {
+    const name = addDraft.name.trim()
+    if (!name) return
+    setAdding(true)
+    setAddError('')
+    try {
+      await api.createCharacter(dramaId, {
+        name,
+        gender: addDraft.gender,
+        age: addDraft.age.trim() === '' ? null : Number(addDraft.age),
+        occupation: addDraft.occupation,
+        appearance: addDraft.appearance,
+        background: addDraft.background,
+      })
+      setAddDraft(EMPTY_ADD)
+      setShowAdd(false)
+      onChanged()
+    } catch (err) {
+      // 重名、空名这类错误后端会给出能看懂的话，直接展示
+      setAddError(err instanceof Error ? err.message : '添加失败')
+    } finally {
+      setAdding(false)
+    }
   }
+
+  const isNarrator = (name: string) => ['旁白', '画外音', '解说'].includes(name)
+  const empty = characters.length === 0
 
   return (
     <div className="character-panel">
       <div className="character-panel-head">
-        {/* 标题由外层 <details> 的 summary 承担，这里只放操作与提示 */}
+        {/* 标题由外层 tab / summary 承担，这里只放操作与提示 */}
         <span className="muted small">先定角色，再画镜头：外貌描述会拼进每张画面</span>
-        <button
-          className="secondary"
-          onClick={() =>
-            void api
-              .generateTurnarounds(dramaId, true)
-              .then(onChanged)
-              .catch((err: unknown) =>
-                setError(err instanceof Error ? err.message : '提交失败'),
-              )
-          }
-          title="为所有有形象的角色画「正面/侧面/背面」三视图；旁白会被自动跳过；已有三视图的不会重画"
-        >
-          生成三视图
-        </button>
+        <div className="panel-actions">
+          <button className="secondary" onClick={() => setShowAdd((v) => !v)}>
+            {showAdd ? '取消添加' : '＋ 添加角色'}
+          </button>
+          {!empty && (
+            <button
+              className="secondary"
+              onClick={() =>
+                void api
+                  .generateTurnarounds(dramaId, true)
+                  .then(onChanged)
+                  .catch((err: unknown) =>
+                    setError(err instanceof Error ? err.message : '提交失败'),
+                  )
+              }
+              title="为所有有形象的角色画「正面/侧面/背面」三视图；旁白会被自动跳过；已有三视图的不会重画"
+            >
+              生成三视图
+            </button>
+          )}
+        </div>
       </div>
 
-      <p className="muted small">
-        三视图用来<b>先确认角色长什么样</b>，再画每个镜头。注意：当前图片厂商只吃文字
-        （不支持参考图），所以"同一个角色长得像"靠的是下面这段<b>外貌描述</b>——
-        写得越具体，各个镜头里就越稳定。
-      </p>
+      {showAdd && (
+        <section className="character-add">
+          <p className="muted small">
+            手动加一个角色 —— 适合<b>后续集数出现的新角色</b>，以及 AI 分析不到的人
+            （比如只站在背景里、没有台词的保安）。名字要和台词里「角色名：」的写法一致。
+          </p>
+          <div className="character-add-grid">
+            <label>
+              角色名（必填）
+              <input
+                value={addDraft.name}
+                onChange={(e) => setAddDraft({ ...addDraft, name: e.target.value })}
+                placeholder="例如：王警官"
+              />
+            </label>
+            <label>
+              性别
+              <select
+                value={addDraft.gender}
+                onChange={(e) => setAddDraft({ ...addDraft, gender: e.target.value })}
+              >
+                {GENDERS.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              年龄
+              <input
+                type="number"
+                min={0}
+                max={200}
+                value={addDraft.age}
+                onChange={(e) => setAddDraft({ ...addDraft, age: e.target.value })}
+                placeholder="留空则按性别定音色"
+              />
+            </label>
+            <label>
+              职业
+              <input
+                value={addDraft.occupation}
+                onChange={(e) => setAddDraft({ ...addDraft, occupation: e.target.value })}
+                placeholder="例如：刑警"
+              />
+            </label>
+          </div>
+          <label>
+            外貌（影响每个镜头的画面，越具体越稳定）
+            <textarea
+              rows={2}
+              value={addDraft.appearance}
+              onChange={(e) => setAddDraft({ ...addDraft, appearance: e.target.value })}
+              placeholder="例如：短发、微胖、深蓝夹克、右手有疤"
+            />
+          </label>
+          <label>
+            背景故事（可选，参与剧情理解）
+            <textarea
+              rows={2}
+              value={addDraft.background}
+              onChange={(e) => setAddDraft({ ...addDraft, background: e.target.value })}
+              placeholder="例如：干了二十年刑警，女儿也在这一行"
+            />
+          </label>
+          <div className="panel-actions">
+            <button onClick={() => void submitAdd()} disabled={adding || !addDraft.name.trim()}>
+              {adding ? '添加中…' : '添加'}
+            </button>
+            <button className="link" onClick={() => setShowAdd(false)}>
+              取消
+            </button>
+            {addError && <span className="image-error">{addError}</span>}
+          </div>
+        </section>
+      )}
 
       {error && <p className="image-error">{error}</p>}
 
-      <div className="character-cards">
+      {empty ? (
+        <p className="muted">
+          还没有角色表。可以点上面的「＋ 添加角色」手动加，
+          也可以点「生成配音」或「分析角色」让 AI 从剧本里整理出人物。
+        </p>
+      ) : (
+        <>
+          <p className="muted small">
+            三视图用来<b>先确认角色长什么样</b>，再画每个镜头。
+            如果图片厂商支持参考图（比如万相），系统会把裁好的<b>单人正面</b>当参考图传进去；
+            不支持的厂商只能靠下面这段<b>外貌描述</b>——写得越具体，各个镜头里就越稳定。
+          </p>
+
+          <div className="character-cards">
         {characters.map((character) => {
           const draft = drafts[character.id] ?? toDraft(character)
           const narrator = isNarrator(character.name)
@@ -307,7 +438,9 @@ export default function CharacterPanel({
             </div>
           )
         })}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

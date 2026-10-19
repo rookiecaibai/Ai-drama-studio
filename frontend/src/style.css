@@ -542,3 +542,28 @@ button.danger:disabled { opacity: 0.6; }
 
 /* 顶部主题切换按钮 */
 .theme-toggle { font-size: 12px; }
+
+/* ── 手动添加角色的表单 ── */
+.character-add {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 10px 0 14px;
+  background: var(--panel-2);
+}
+.character-add label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.character-add input,
+.character-add select,
+.character-add textarea { margin-top: 4px; }
+.character-add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.character-add-grid label { margin-bottom: 0; }

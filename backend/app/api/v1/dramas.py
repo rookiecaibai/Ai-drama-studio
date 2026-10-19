@@ -13,9 +13,9 @@ from app.api.deps import (
     SessionFactoryDep,
 )
 from app.core.config import get_settings
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.models import Character, DialogueLine, Drama, Episode, GenerationTask, Shot, User
-from app.schemas.character import CharacterRead, TurnaroundGenerateRequest
+from app.schemas.character import CharacterCreate, CharacterRead, TurnaroundGenerateRequest
 from app.schemas.drama import DramaCreate, DramaDetail, DramaRead, DramaUpdate
 from app.schemas.episode import (
     EpisodeCreate,
@@ -27,9 +27,11 @@ from app.schemas.task import GenerationTaskRead
 from app.services import media
 from app.services import model_config
 from app.services.cast_service import analyze_cast
+from app.services.character_look import derive_age_group
 from app.services.quota import QuotaService
 from app.services.synopsis_service import generate_synopsis
 from app.services.task_service import run_turnaround_task
+from app.services.voice_profile import normalize_age_group, normalize_gender, profile_for
 
 router = APIRouter(prefix="/dramas", tags=["dramas"])
 
@@ -150,6 +152,61 @@ def list_characters(drama_id: int, db: DbSession, user: CurrentUser) -> list[Cha
     return list(
         db.scalars(select(Character).where(Character.drama_id == drama.id).order_by(Character.id))
     )
+
+
+@router.post(
+    "/{drama_id}/characters",
+    response_model=CharacterRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="手动新增一个角色（后续集数出新角色时用）",
+)
+def create_character(
+    drama_id: int, payload: CharacterCreate, db: DbSession, user: CurrentUser
+) -> Character:
+    """手动加一个角色。
+
+    创建时会**顺手按性别/年龄推一套配音参数**（音色、音高、语速），
+    所以新角色加完立刻就能配音、也能生成三视图，不用再跑一遍 AI 分析。
+
+    同名会在数据库层被唯一约束拦住，但那样报的是 500；这里先查一次给出 409 和清楚的话 ——
+    重名会破坏台词里的说话人匹配，属于用户该被明确提醒的错误。
+    """
+    drama = _get_owned_drama(db, drama_id, user)
+    name = payload.name.strip()
+    if not name:
+        raise AppError("角色名不能为空", code="bad_character_name", status_code=400)
+
+    duplicated = db.scalar(
+        select(Character.id).where(Character.drama_id == drama.id, Character.name == name)
+    )
+    if duplicated is not None:
+        raise ConflictError(f"这部剧已经有叫「{name}」的角色了")
+
+    gender = normalize_gender(payload.gender or "unknown")
+    # 年龄段优先用明确的，其次按年龄推导，最后兜底 young
+    age_group = normalize_age_group(
+        payload.age_group or derive_age_group(payload.age) or "young"
+    )
+    profile = profile_for(gender, age_group)
+
+    character = Character(
+        drama_id=drama.id,
+        name=name[:60],
+        gender=gender,
+        age_group=age_group,
+        age=payload.age,
+        voice=profile.voice,
+        pitch_shift=profile.pitch_shift,
+        speed=profile.speed,
+        personality=(payload.personality or "")[:500],
+        appearance=(payload.appearance or "")[:500],
+        occupation=(payload.occupation or "")[:60],
+        background=(payload.background or "")[:2000],
+    )
+    db.add(character)
+    db.commit()
+    db.refresh(character)
+    return character
 
 
 @router.post(

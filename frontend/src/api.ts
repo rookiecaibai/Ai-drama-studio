@@ -171,6 +171,30 @@ export const api = {
   /** 这部剧的角色表（配音的选角依据 + 画面的外貌锚点） */
   listCharacters: (dramaId: number) => request<Character[]>(`/api/v1/dramas/${dramaId}/characters`),
 
+  /**
+   * 手动新增角色。
+   *
+   * 为什么需要：角色表原来是纯 AI 分析出来的（扫台词判断谁在说话），
+   * 所以"只出现在画面里、没有台词"的角色它发现不了；
+   * 而且新角色出现时 AI 还没分析过，只能干等。给个手动入口。
+   */
+  createCharacter: (
+    dramaId: number,
+    payload: {
+      name: string
+      gender?: string
+      age?: number | null
+      age_group?: string | null
+      personality?: string
+      appearance?: string
+      occupation?: string
+      background?: string
+    },
+  ) => request<Character>(`/api/v1/dramas/${dramaId}/characters`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
   /** 可选音色（带实测基频，帮助判断男女声） */
   listVoices: () => request<VoiceOption[]>('/api/v1/characters/voices'),
 

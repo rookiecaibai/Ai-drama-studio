@@ -59,6 +59,33 @@ class CharacterUpdate(BaseModel):
     )
 
 
+class CharacterCreate(BaseModel):
+    """手动新增一个角色。
+
+    为什么需要它：角色表原来是**纯 AI 分析**出来的（扫这一集的台词判断谁在说话），
+    这有两个死穴：
+      ① AI 只认得出**有台词**的人 —— 一直站在背景里的保安、只在画面里出现的路人，
+         它发现不了；
+      ② 短剧常出现"第 5 集突然来了个新角色"，这时 AI 还没分析过，用户只能干等。
+
+    所以给一个手动入口。名字是必填的（台词里的说话人要靠它匹配），
+    其它都可以留空、之后再补。
+    """
+
+    name: str = Field(
+        min_length=1, max_length=60, description="角色名，要和台词里的「角色名：」写法一致"
+    )
+    gender: str = Field(default="unknown", description="male / female / unknown")
+    age: int | None = Field(default=None, ge=0, le=200, description="具体年龄")
+    age_group: str | None = Field(
+        default=None, description="child/teen/young/middle/elderly；留空则按 age 推导"
+    )
+    personality: str | None = Field(default=None, description="性格/说话风格（喂给情绪分析）")
+    appearance: str | None = Field(default=None, description="外貌：发型/脸型/体型/常穿衣服")
+    occupation: str | None = Field(default=None, max_length=60)
+    background: str | None = Field(default=None, description="背景故事")
+
+
 class VoiceOption(BaseModel):
     """可选音色。pitch_hz 是实测基频，帮助判断男女声（我听不到音频，只能测出来）。"""
 
