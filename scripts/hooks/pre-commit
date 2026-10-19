@@ -1,0 +1,38 @@
+#!/bin/sh
+# 提交前拦截密钥 —— 由 scripts/install_hooks.ps1 安装（git config core.hooksPath）
+#
+# 为什么需要：这个仓库是**公开**的。一旦把 .env 里的 key 提交并推送，
+# 几分钟内就会被爬虫抓走；删掉文件也救不回来（历史里还在，可能已经被人 fork）。
+# 所以要在**提交之前**拦住，而不是事后清理。
+
+set -e
+
+# 找到 python（Windows 的 git 通常带 sh，但 python 不一定在 PATH 上）
+if [ -x ".venv/Scripts/python.exe" ]; then
+    PY=".venv/Scripts/python.exe"
+elif [ -x ".venv/bin/python" ]; then
+    PY=".venv/bin/python"
+elif command -v python >/dev/null 2>&1; then
+    PY=python
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    echo "[跳过] 找不到 python，无法执行密钥检查"
+    exit 0
+fi
+
+if [ ! -f "backend/tools/check_secrets.py" ]; then
+    echo "[跳过] 没找到 backend/tools/check_secrets.py"
+    exit 0
+fi
+
+if ! "$PY" backend/tools/check_secrets.py --staged; then
+    echo ""
+    echo "================================================================"
+    echo " 提交被阻止：暂存区里发现疑似 API Key"
+    echo ""
+    echo " 如果确实是测试用的假值，让它明显一点（值里含 test/fake/example）"
+    echo " 如果这是真 key：先去厂商控制台轮换，再把它挪进 .env"
+    echo "================================================================"
+    exit 1
+fi

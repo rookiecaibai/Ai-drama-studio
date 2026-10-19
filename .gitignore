@@ -33,3 +33,20 @@ frontend/*.local
 .vscode/
 .DS_Store
 Thumbs.db
+
+# ---------- 密钥相关（这个仓库是公开的，误提交 = 立刻泄露）----------
+# 各种 .env 变体都排除，但模板要留着
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+# 证书 / 私钥
+*.pem
+*.key
+*.p12
+*.pfx
+# 本地日志和临时脚本（可能带出请求头里的 key）
+*.log
+_temp_*
