@@ -7,7 +7,7 @@
 所以一张卡上两类信息都有，用户改一处，配音和画面都会跟着变。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import CurrentUser, DbSession
@@ -129,6 +129,35 @@ def update_character(
     db.commit()
     db.refresh(character)
     return character
+
+
+@router.delete(
+    "/{character_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除一个角色（连同它的三视图和参考图）",
+)
+def delete_character(character_id: int, db: DbSession, user: CurrentUser) -> None:
+    """删除角色。
+
+    删除之后会怎样（这是用户最该知道的两点）：
+      ① **已经生成的台词不会消失**，但那一行台词和角色的关联会被数据库置空
+         （`dialogue_lines.character_id` 是 ON DELETE SET NULL）——
+         说话人的**文字名字还留着**（`speaker` 字段），所以分镜表看起来正常，
+         只是这个角色不再有音色，之后重新配音时那句会退回默认音色；
+      ② 它的**三视图和裁出来的参考图会被删掉**（数据库级联不管磁盘文件）。
+         如果之后再画镜头，就少了一张参考图 —— 一致性会退一步。
+    """
+    character = _get_owned_character(db, character_id, user)
+
+    # 先记下文件路径，再删记录（记录一删就查不到了）
+    sheet_path = character.turnaround_path
+    portrait_path = media.character_portrait_rel_path(character.id)
+
+    db.delete(character)
+    db.commit()
+
+    media.delete(sheet_path)
+    media.delete(portrait_path)
 
 
 @router.get("/{character_id}/turnaround", summary="读取角色三视图（需登录，且只能读自己的）")

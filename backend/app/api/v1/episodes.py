@@ -17,7 +17,7 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.core.errors import AppError, NotFoundError
-from app.db.models import Episode, GenerationTask, User
+from app.db.models import DialogueLine, Episode, GenerationTask, Shot, User
 from app.schemas.episode import (
     AudioGenerateRequest,
     ClipGenerateRequest,
@@ -46,6 +46,45 @@ def _get_owned_episode(db: DbSession, episode_id: int, user: User) -> Episode:
     if episode is None or episode.drama.owner_id != user.id:
         raise NotFoundError(f"剧集 {episode_id} 不存在")
     return episode
+
+
+@router.delete(
+    "/{episode_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除一整集（连同分镜、台词和已生成的图/音频/视频）",
+)
+def delete_episode(episode_id: int, db: DbSession, user: CurrentUser) -> None:
+    """删除一集。**删掉的剧集编号不会自动重排**。
+
+    为什么：数据库的级联删除（`shots.episode_id` / `dialogue_lines.shot_id` 都是
+    ON DELETE CASCADE）只删**记录**，磁盘上的 png/mp3/mp4 不会跟着消失 ——
+    不清理就是一堆没人认领的孤儿文件，而且视频文件很大。
+
+    为什么编号不重排：删了第 2 集之后把第 3 集改名成"第 2 集"，会让人对不上之前
+    聊过的"第 3 集那个镜头"。宁可有空号，也不要偷改编号。新增剧集用的是 max+1，
+    所以也不会撞号。
+    """
+    episode = _get_owned_episode(db, episode_id, user)
+
+    shots = list(db.scalars(select(Shot).where(Shot.episode_id == episode.id)))
+    # 先把要删的文件路径**收集完**再删记录：记录一删，这些路径就查不到了
+    paths: list[str | None] = [episode.video_path]
+    for shot in shots:
+        paths += [shot.image_path, shot.audio_path, shot.clip_path]
+        # 逐句配音：一个镜头可能存了好几段单句音频
+        paths += list(
+            db.scalars(
+                select(DialogueLine.audio_path).where(
+                    DialogueLine.shot_id == shot.id, DialogueLine.audio_path.is_not(None)
+                )
+            )
+        )
+
+    db.delete(episode)  # 分镜与逐句台词由数据库级联删除
+    db.commit()
+
+    for rel_path in paths:
+        media.delete(rel_path)  # 单个文件删失败只记日志，不影响接口返回
 
 
 @router.patch("/{episode_id}", response_model=EpisodeDetail, summary="修改本集标题或大纲")

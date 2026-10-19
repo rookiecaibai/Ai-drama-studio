@@ -175,6 +175,29 @@ export default function CharacterPanel({
     }
   }
 
+  /**
+   * 删除一个角色。
+   *
+   * 确认框要讲清两件事：
+   *   ① 三视图和参考图会被删掉 —— 之后画镜头少一张参考图，一致性会退一步；
+   *   ② 已经生成的台词**不会消失**（说话人文字还在），但这个角色不再有音色。
+   */
+  async function removeCharacter(character: Character) {
+    const ok = window.confirm(
+      `确定删除角色「${character.name}」？\n\n` +
+        '它的三视图和参考图会被一起删除。\n' +
+        '已经生成的台词不会消失，但这个角色不再有音色（重新配音时该角色会退回默认音色）。',
+    )
+    if (!ok) return
+    setError('')
+    try {
+      await api.deleteCharacter(character.id)
+      onChanged()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
   const isNarrator = (name: string) => ['旁白', '画外音', '解说'].includes(name)
   const empty = characters.length === 0
 
@@ -511,6 +534,14 @@ export default function CharacterPanel({
                     重画三视图
                   </button>
                 )}
+                {/* 用红色文字而不是红色实心按钮：删除是低频操作，实心红太抢眼、容易误点 */}
+                <button
+                  className="link danger-text"
+                  onClick={() => void removeCharacter(character)}
+                  title="删除这个角色（三视图和参考图会一起删掉）"
+                >
+                  删除角色
+                </button>
               </div>
               )}
             </div>

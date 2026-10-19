@@ -421,6 +421,31 @@ export default function DramaWorkspace({
   }
 
   /**
+   * 删除当前这一集。
+   *
+   * 确认框里必须写清代价：这一集的分镜、台词、以及磁盘上已经花钱生成的
+   * 画面/配音/动态片段/成片会**一起消失**，不可恢复。
+   * 另外顺带说明"其它集编号不变"，否则用户会担心删了第 2 集后第 3 集变成第 2 集。
+   */
+  async function removeEpisode(episodeId: number) {
+    const number = episodes.find((e) => e.id === episodeId)?.number ?? ''
+    const ok = window.confirm(
+      `确定删除第 ${number} 集？\n\n` +
+        '这一集的分镜、台词，以及已生成的画面 / 配音 / 动态片段 / 成片都会一起删除。\n' +
+        '删除后无法恢复。其它集的编号不会变。',
+    )
+    if (!ok) return
+    try {
+      await api.deleteEpisode(episodeId)
+      setSelectedEpisode(null)
+      setTask(null)
+      if (selectedDramaId !== null) void loadEpisodes(selectedDramaId)
+    } catch (e) {
+      showError(e)
+    }
+  }
+
+  /**
    * 删除短剧后的收尾（删除动作本身在「短剧设置」面板里）。
    *
    * 为什么把删除从"列表右侧的按钮"挪到设置里：
@@ -636,7 +661,16 @@ export default function DramaWorkspace({
 
               {selectedEpisode ? (
                 <section className="episode-detail">
-                  <h3>第 {selectedEpisode.number} 集</h3>
+                  <div className="episode-detail-head">
+                    <h3>第 {selectedEpisode.number} 集</h3>
+                    <button
+                      className="link danger-text"
+                      onClick={() => void removeEpisode(selectedEpisode.id)}
+                      title="删除这一集：分镜、台词、画面、配音、动态片段、成片都会一起删掉"
+                    >
+                      删除本集
+                    </button>
+                  </div>
 
                   <label>本集标题</label>
                   <input

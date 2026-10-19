@@ -171,6 +171,14 @@ export const api = {
   /** 这部剧的角色表（配音的选角依据 + 画面的外貌锚点） */
   listCharacters: (dramaId: number) => request<Character[]>(`/api/v1/dramas/${dramaId}/characters`),
 
+  /** 删除一个角色（连同它的三视图和参考图）；已生成的台词不会被删，只是不再挂这个角色 */
+  deleteCharacter: (characterId: number) =>
+    request<void>(`/api/v1/characters/${characterId}`, { method: 'DELETE' }),
+
+  /** 删除一整集（连同分镜、台词和已生成的图/音频/视频）；其它集的编号不会重排 */
+  deleteEpisode: (episodeId: number) =>
+    request<void>(`/api/v1/episodes/${episodeId}`, { method: 'DELETE' }),
+
   /**
    * 手动新增角色。
    *

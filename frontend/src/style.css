@@ -673,3 +673,16 @@ img.lightbox-img {
   color: #cfd8e3;
   pointer-events: none;
 }
+
+/* 红色文字按钮：删除这类低频危险操作用它，比实心红按钮克制、不易误点 */
+.danger-text { color: var(--danger) !important; }
+.danger-text:hover { text-decoration: underline; }
+
+/* 本集详情顶部：标题在左、删除在右 */
+.episode-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.episode-detail-head h3 { margin: 0; }
