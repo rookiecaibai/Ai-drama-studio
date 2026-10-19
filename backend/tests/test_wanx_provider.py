@@ -49,19 +49,23 @@ def test_detects_multiple_views():
 
 
 def test_portrait_is_cropped_to_a_single_person():
-    """这是核心：多视角时裁出**单人**，否则模型会画出三个人。"""
+    """核心：多视角时裁出**单人**，否则模型会画出三个人。
+
+    断言的是**语义**（人像里只剩一个人物），不是具体像素尺寸 ——
+    因为尺寸不安全时还会被归一化到 640x1024，用尺寸断言会失效（这个测试就因此红过一次）。
+    """
     character_id = 987001
     sheet_rel = media.character_sheet_rel_path(character_id, "png")
-    media.save_bytes(sheet_rel, b"")  # 先占位，下面直接写文件
+    media.save_bytes(sheet_rel, b"")
     sheet_abs = media.absolute_path(sheet_rel)
     _draw_figures(3).save(sheet_abs)
 
     portrait = build_portrait(character_id, sheet_rel)
     assert portrait is not None and portrait.exists()
 
-    with Image.open(sheet_abs) as sheet, Image.open(portrait) as crop:
-        assert crop.width < sheet.width * 0.6, "应该只保留一个人物的宽度"
-        assert crop.height == sheet.height
+    with Image.open(portrait) as crop:
+        strips = _content_strips(crop.convert("RGB"))
+    assert len(strips) == 1, f"人像里应该只有一个人物，实际检测到 {len(strips)} 个"
 
 
 def test_single_figure_sheet_is_used_as_is():
