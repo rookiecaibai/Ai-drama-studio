@@ -92,6 +92,15 @@ export default function CharacterPanel({
   const [addDraft, setAddDraft] = useState(EMPTY_ADD)
   // 放大查看的图片（三视图 1344x768，缩略图看不清细节）
   const [preview, setPreview] = useState<{ path: string; title: string } | null>(null)
+  /**
+   * 哪些角色卡是展开的。**默认全部收起**。
+   *
+   * 为什么：一张卡有 8 个字段（性别/年龄/职业/音色/语速/外貌/背景/锁定提示词），
+   * 纵向排下来近半屏。角色一多（一部剧十几个人很正常）用户就得一直往下滚，
+   * 而且很难一眼看清"这部剧到底有谁"。收起后每张卡只剩一行，
+   * 名字、性别年龄、职业、音色一眼扫完，要看细节再点开。
+   */
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     void api
@@ -169,6 +178,25 @@ export default function CharacterPanel({
   const isNarrator = (name: string) => ['旁白', '画外音', '解说'].includes(name)
   const empty = characters.length === 0
 
+  const genderText = (value: string) => GENDERS.find((g) => g.value === value)?.label ?? value
+  const ageGroupText = (value: string) => AGE_GROUPS.find((g) => g.value === value)?.label ?? value
+  const voiceText = (value: string) => voices.find((v) => v.voice === value)?.label ?? value
+  const allExpanded = !empty && characters.every((c) => expandedIds.has(c.id))
+
+  function toggleExpanded(characterId: number) {
+    setExpandedIds((previous) => {
+      const next = new Set(previous)
+      if (next.has(characterId)) next.delete(characterId)
+      else next.add(characterId)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    // 全展开状态 -> 全收起；否则全展开
+    setExpandedIds(allExpanded ? new Set() : new Set(characters.map((c) => c.id)))
+  }
+
   return (
     <div className="character-panel">
       <div className="character-panel-head">
@@ -178,6 +206,11 @@ export default function CharacterPanel({
           <button className="secondary" onClick={() => setShowAdd((v) => !v)}>
             {showAdd ? '取消添加' : '＋ 添加角色'}
           </button>
+          {characters.length > 1 && (
+            <button className="secondary" onClick={toggleAll} title="一次展开或收起所有角色卡">
+              {allExpanded ? '全部收起' : '全部展开'}
+            </button>
+          )}
           {!empty && (
             <button
               className="secondary"
@@ -294,9 +327,17 @@ export default function CharacterPanel({
         {characters.map((character) => {
           const draft = drafts[character.id] ?? toDraft(character)
           const narrator = isNarrator(character.name)
+          const expanded = expandedIds.has(character.id)
           return (
-            <div className="character-card" key={character.id}>
-              <div className="character-card-head">
+            <div className={`character-card${expanded ? ' expanded' : ''}`} key={character.id}>
+              {/* 卡片头本身是展开/收起的开关：收起时它就是这一行摘要 */}
+              <button
+                className="character-card-head"
+                onClick={() => toggleExpanded(character.id)}
+                aria-expanded={expanded}
+                title={expanded ? '收起（改动不会丢，保存前一直保留）' : '展开编辑外貌、音色、语速'}
+              >
+                <span className="chevron">{expanded ? '▾' : '▸'}</span>
                 <strong>{character.name}</strong>
                 {narrator && (
                   // 用 .tag 而不是 .clip-badge：后者是 position:absolute 的缩略图角标，
@@ -305,9 +346,21 @@ export default function CharacterPanel({
                     旁白 · 无形象
                   </span>
                 )}
-              </div>
+                {!expanded && (
+                  <>
+                    <span className="tag">{genderText(draft.gender)}</span>
+                    <span className="tag">{ageGroupText(character.age_group)}</span>
+                    {character.occupation && (
+                      <span className="muted small">{character.occupation}</span>
+                    )}
+                    <span className="muted small card-voice" title="这个角色的配音音色">
+                      {voiceText(character.voice)}
+                    </span>
+                  </>
+                )}
+              </button>
 
-              <div className="character-card-body">
+              <div className={`character-card-body${expanded ? '' : ' collapsed'}`}>
                 <div className="character-sheet">
                   {character.turnaround_path ? (
                     /* 缩略图只够"知道画出来了"，判断三个视角准不准必须能看大图 */
@@ -338,6 +391,7 @@ export default function CharacterPanel({
                   )}
                 </div>
 
+                {expanded && (
                 <div className="character-fields">
                   <label>
                     性别
@@ -433,8 +487,10 @@ export default function CharacterPanel({
                     />
                   </label>
                 </div>
+                )}
               </div>
 
+              {expanded && (
               <div className="character-card-foot">
                 <button onClick={() => void save(character)} disabled={savingId === character.id}>
                   {savingId === character.id ? '保存中…' : '保存'}
@@ -456,6 +512,7 @@ export default function CharacterPanel({
                   </button>
                 )}
               </div>
+              )}
             </div>
           )
         })}

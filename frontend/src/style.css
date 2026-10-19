@@ -297,21 +297,46 @@ video.player {
   border-radius: 8px;
   background: var(--panel-2);
 }
-.character-card-head {
+/* 卡片头同时是"展开/收起"开关，所以是个 button —— 要把浏览器默认样式清掉，
+   否则会变成一个蓝色大按钮 */
+button.character-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   margin-bottom: 8px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+button.character-card-head:hover { background: var(--hover); }
+.character-card-head .chevron {
+  width: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+/* 音色推到最右边，收起时形成「名字 …… 音色」的一行摘要 */
+.card-voice { margin-left: auto; white-space: nowrap; }
 .character-card-body {
   display: flex;
   gap: 10px;
   align-items: flex-start;
 }
-/* 三视图缩略图：竖着排的三视图，给一个固定宽度就够了 */
-.character-sheet { width: 108px; flex: 0 0 108px; }
+/* 三视图缩略图容器：宽度必须跟着图片走，否则固定宽度会让 150px 的图溢出、
+   压到右边的「性别」下拉框上（这个 bug 出现过） */
+.character-sheet { width: 150px; flex: 0 0 150px; }
+/* 收起状态只留一个更小的缩略图：它的作用只是"有没有图"的指示灯，
+   要看细节点它开灯箱。这样每张收起卡压缩到 60px 高左右，
+   6 个角色也能一屏看完，不用一直往下滚。 */
+.character-card-body.collapsed { align-items: center; }
+.character-card-body.collapsed .character-sheet { width: 64px; flex: 0 0 64px; }
 img.turnaround {
-  width: 150px;
+  width: 100%;
   border-radius: 6px;
   border: 1px solid var(--border);
   display: block;
