@@ -94,6 +94,16 @@ def character_sheet_rel_path(character_id: int, extension: str = "png") -> str:
     return f"characters/{character_id}/sheet.{extension.lstrip('.')}"
 
 
+def character_portrait_rel_path(character_id: int) -> str:
+    """从三视图裁出来的"单人人像"，专门给**参考图**用。
+
+    为什么不直接用三视图：三个视角并排会被模型理解成"三个人"，
+    于是画出一排一模一样的角色（实测过）。裁剪见 services/portrait.py。
+    这个文件是中间产物，不需要入库、不需要暴露给前端。
+    """
+    return f"characters/{character_id}/portrait.png"
+
+
 def line_audio_rel_path(line_id: int) -> str:
     """单句台词的音频存哪里。
 

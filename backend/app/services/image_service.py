@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.db.models import Character, DialogueLine, Episode, Shot
-from app.services import media
+from app.services import media, portrait
 from app.services.character_look import characters_in_shot, compose_shot_prompt
 from app.services.images.base import ImageProvider
 
@@ -45,18 +45,21 @@ def _load_lines_by_shot(db: Session, shot_ids: list[int]) -> dict[int, list[Dial
 
 
 def _pick_reference(shot_characters: list[Character]) -> Path | None:
-    """哪张三视图可以当参考图传给模型。
+    """哪张图可以当参考图传给模型。
 
     只有当**这个镜头恰好只有一个角色**、且这个角色已经有了三视图时才传。
     为什么这么保守：一张参考图对应一个具体的长相，如果镜头里有两个人，
     传其中一个人的设定图反而会把另一个人的长相带偏 —— 不如老老实实走纯文本。
     （也只有 supports_reference=True 的 Provider 才会走到这里。）
+
+    **注意这里用的是"裁好的单人人像"，不是原三视图**：
+    三视图是三个视角并排，直接当参考图会被模型理解成"三个人"，
+    画出一排一模一样的角色（实测事故，见 services/portrait.py）。
     """
     usable = [c for c in shot_characters if c.turnaround_path]
     if len(shot_characters) == 1 and len(usable) == 1:
-        rel_path = usable[0].turnaround_path or ""
-        if media.exists(rel_path):
-            return media.absolute_path(rel_path)
+        character = usable[0]
+        return portrait.build_portrait(character.id, character.turnaround_path or "")
     return None
 
 

@@ -250,6 +250,8 @@ export default function DramaSettingsPanel({
                   <option value="">（跟随服务端）</option>
                   <option value="mock">mock（本地假实现，不花钱）</option>
                   <option value="openai_compat">openai_compat（真模型）</option>
+                  {/* 万相是目前唯一支持参考图的渠道 —— 只有它能拿角色的脸去约束画面 */}
+                  {key === 'image' && <option value="wanx">wanx（万相，支持参考图）</option>}
                   {key === 'video' && <option value="none">none（不生成视频）</option>}
                 </select>
               </label>

@@ -5,6 +5,7 @@ from app.core.errors import AppError
 from app.services.images.base import ImageProvider
 from app.services.images.mock import MockImageProvider
 from app.services.images.openai_compat import OpenAICompatImageProvider
+from app.services.images.wanx import WanxImageProvider
 from app.services.llm.params import parse_extra_params
 
 
@@ -13,6 +14,18 @@ def build_image_provider(settings: Settings) -> ImageProvider:
 
     if provider == "mock":
         return MockImageProvider()
+
+    if provider == "wanx":
+        # 目前唯一支持参考图的渠道：角色一致性靠它，而不是靠文字描述
+        return WanxImageProvider(
+            api_key=settings.wanx_api_key or settings.image_api_key,
+            base_url=settings.wanx_base_url,
+            model=settings.wanx_model,
+            # 显式传像素尺寸：有参考图时万相会跟随参考图的长宽比，
+            # 不显式指定就会出一张比例奇怪的图，和成片的 768x1344 对不上
+            size=settings.image_size or "1K",
+            timeout=settings.image_timeout_sec,
+        )
 
     if provider == "openai_compat":
         return OpenAICompatImageProvider(
@@ -31,7 +44,7 @@ def build_image_provider(settings: Settings) -> ImageProvider:
         )
 
     raise AppError(
-        f"未知的 IMAGE_PROVIDER: {settings.image_provider}（可选 mock / openai_compat）",
+        f"未知的 IMAGE_PROVIDER: {settings.image_provider}（可选 mock / openai_compat / wanx）",
         code="bad_image_provider_config",
         status_code=500,
     )

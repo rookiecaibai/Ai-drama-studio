@@ -165,6 +165,13 @@ class Settings(BaseSettings):
     image_min_interval_sec: float = 1.2
     image_retry_attempts: int = 3
 
+    # ── 万相（阿里云百炼）──
+    # 为什么单独一套配置：它是目前唯一「支持参考图」的图像渠道。
+    # 智谱的三个画图模型都是纯文本输入，角色只能靠文字描述，长相会飘。
+    wanx_api_key: str = ""
+    wanx_base_url: str = "https://dashscope.aliyuncs.com/api/v1"
+    wanx_model: str = "wan2.7-image"
+
     # 视频厂商的私有参数透传（JSON 字符串），格式见 IMAGE_EXTRA_PARAMS 的说明。
     # 例：VIDEO_EXTRA_PARAMS={"watermark_enabled": false}
     video_extra_params: str = ""
