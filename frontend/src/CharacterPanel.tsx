@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import AuthMedia from './AuthMedia'
+import ImageLightbox from './ImageLightbox'
 import type { Character, VoiceOption } from './types'
 
 /**
@@ -89,6 +90,8 @@ export default function CharacterPanel({
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
   const [addDraft, setAddDraft] = useState(EMPTY_ADD)
+  // 放大查看的图片（三视图 1344x768，缩略图看不清细节）
+  const [preview, setPreview] = useState<{ path: string; title: string } | null>(null)
 
   useEffect(() => {
     void api
@@ -307,13 +310,25 @@ export default function CharacterPanel({
               <div className="character-card-body">
                 <div className="character-sheet">
                   {character.turnaround_path ? (
-                    <AuthMedia
-                      kind="image"
-                      path={api.characterTurnaroundPath(character.id)}
-                      alt={`${character.name} 的三视图`}
-                      className="turnaround"
-                      cacheKey={version}
-                    />
+                    /* 缩略图只够"知道画出来了"，判断三个视角准不准必须能看大图 */
+                    <button
+                      className="zoomable"
+                      onClick={() =>
+                        setPreview({
+                          path: api.characterTurnaroundPath(character.id),
+                          title: `${character.name} 的三视图`,
+                        })
+                      }
+                      title="点击放大查看"
+                    >
+                      <AuthMedia
+                        kind="image"
+                        path={api.characterTurnaroundPath(character.id)}
+                        alt={`${character.name} 的三视图`}
+                        className="turnaround"
+                        cacheKey={version}
+                      />
+                    </button>
                   ) : character.turnaround_error ? (
                     <span className="image-error" title={character.turnaround_error}>
                       三视图失败
@@ -446,6 +461,15 @@ export default function CharacterPanel({
         })}
           </div>
         </>
+      )}
+
+      {preview && (
+        <ImageLightbox
+          imagePath={preview.path}
+          title={preview.title}
+          cacheKey={version}
+          onClose={() => setPreview(null)}
+        />
       )}
     </div>
   )

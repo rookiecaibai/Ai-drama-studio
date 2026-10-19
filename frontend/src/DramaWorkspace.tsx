@@ -3,6 +3,7 @@ import { api } from './api'
 import AuthMedia from './AuthMedia'
 import CharacterPanel from './CharacterPanel'
 import DramaSettingsPanel from './DramaSettingsPanel'
+import ImageLightbox from './ImageLightbox'
 import ThemeToggle from './ThemeToggle'
 import type {
   Character,
@@ -68,6 +69,8 @@ export default function DramaWorkspace({
   const [characters, setCharacters] = useState<Character[]>([])
   // 一级 tab：分镜与生成 / 角色卡 / 短剧设置 —— 一屏只做一件事
   const [contentTab, setContentTab] = useState<'storyboard' | 'characters' | 'settings'>('storyboard')
+  // 放大查看的图片（分镜画面 768x1344，缩略图只有 120px）
+  const [preview, setPreview] = useState<{ path: string; title: string } | null>(null)
   // 正在编辑哪个镜头（null = 都没在编辑）+ 该镜头的草稿
   const [editingShotId, setEditingShotId] = useState<number | null>(null)
   const [shotDraft, setShotDraft] = useState<{
@@ -766,13 +769,25 @@ export default function DramaWorkspace({
                               </div>
                             ) : s.image_path ? (
                               <div className="clip-cell">
-                                <AuthMedia
-                                  kind="image"
-                                  path={api.shotImagePath(s.id)}
-                                  alt={`镜头 ${s.number} 的画面`}
-                                  className="thumb"
-                                  cacheKey={mediaVersion}
-                                />
+                                {/* 画面缩略图可点开看大图 —— 768x1344 的细节在 120px 里全丢了 */}
+                                <button
+                                  className="zoomable"
+                                  onClick={() =>
+                                    setPreview({
+                                      path: api.shotImagePath(s.id),
+                                      title: `第 ${selectedEpisode.number} 集 · 镜头 ${s.number}`,
+                                    })
+                                  }
+                                  title="点击放大查看"
+                                >
+                                  <AuthMedia
+                                    kind="image"
+                                    path={api.shotImagePath(s.id)}
+                                    alt={`镜头 ${s.number} 的画面`}
+                                    className="thumb"
+                                    cacheKey={mediaVersion}
+                                  />
+                                </button>
                                 <span className="clip-badge static" title="这个镜头是静图：点「生成动态镜头」让它动起来">
                                   静图
                                 </span>
@@ -933,6 +948,15 @@ export default function DramaWorkspace({
           )}
         </main>
       </div>
+
+      {preview && (
+        <ImageLightbox
+          imagePath={preview.path}
+          title={preview.title}
+          cacheKey={mediaVersion}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   )
 }
