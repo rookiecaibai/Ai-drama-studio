@@ -567,3 +567,17 @@ button.danger:disabled { opacity: 0.6; }
   margin-bottom: 8px;
 }
 .character-add-grid label { margin-bottom: 0; }
+
+/* ── 卡片头部的行内标签（如「旁白 · 无形象」）──
+   为什么不复用 .clip-badge：那个是 position:absolute，本来是压在缩略图右下角的。
+   放进没有定位上下文的卡片头部，它会**逃出卡片**、跑到最近的有定位的祖先那里
+   （实际效果是飘到隔壁卡片右下角，看起来像挂错了人）。 */
+.tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--hover);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}

@@ -295,7 +295,13 @@ export default function CharacterPanel({
             <div className="character-card" key={character.id}>
               <div className="character-card-head">
                 <strong>{character.name}</strong>
-                {narrator && <span className="clip-badge static">旁白 · 无形象</span>}
+                {narrator && (
+                  // 用 .tag 而不是 .clip-badge：后者是 position:absolute 的缩略图角标，
+                  // 放在没有定位上下文的卡片头里会跑出卡片（飘到隔壁卡片右下角）
+                  <span className="tag" title="旁白没有固定形象，不需要三视图，也不会进画面提示词">
+                    旁白 · 无形象
+                  </span>
+                )}
               </div>
 
               <div className="character-card-body">
