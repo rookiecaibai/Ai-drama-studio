@@ -108,19 +108,38 @@ class WanxImageProvider(ImageProvider):
         self._size = size
         self._timeout = timeout
 
-    async def generate(self, *, prompt: str, reference_image: Path | None = None) -> bytes:
+    def _payload(self, prompt: str, reference_image: Path | None) -> dict:
         # 参考图在前、提示词在后 —— 和官方示例的顺序一致（多图时顺序有含义）
         content: list[dict] = []
         if reference_image is not None:
             content.append({"image": _to_data_url(reference_image)})
         content.append({"text": prompt})
-
-        payload = {
+        return {
             "model": self._model,
             "input": {"messages": [{"role": "user", "content": content}]},
             "parameters": {"size": _normalize_size(self._size), "n": 1, "watermark": False},
         }
+
+    async def generate(self, *, prompt: str, reference_image: Path | None = None) -> bytes:
+        try:
+            return await self._request(self._payload(prompt, reference_image))
+        except LLMError as exc:
+            # 兜底：万相偶尔会拒收参考图（"Error validating image ... resolution must ..."，
+            # 实测就是尺寸太小/太窄时）。这时候**宁可不传参考图，也要把这张画面画出来** ——
+            # 让整张图失败是最差的结果（用户还以为功能坏了）。
+            if reference_image is not None and "Error validating image" in str(exc):
+                logger.warning(
+                    "参考图被万相拒绝（%s），自动降级为纯文本重试一次", str(exc)[:120]
+                )
+                return await self._request(self._payload(prompt, None))
+            raise
+
+    async def _request(self, payload: dict) -> bytes:
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        has_reference = any(
+            isinstance(item, dict) and "image" in item
+            for item in payload["input"]["messages"][0]["content"]
+        )
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             try:
@@ -139,9 +158,7 @@ class WanxImageProvider(ImageProvider):
                 )
 
             url = _extract_image_url(resp.json())
-            logger.info(
-                "万相出图完成（%s参考图）", "带" if reference_image is not None else "无"
-            )
+            logger.info("万相出图完成（%s参考图）", "带" if has_reference else "无")
 
             # 结果 URL 24 小时失效 —— 立刻下载，URL 用完即弃
             try:

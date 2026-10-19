@@ -99,9 +99,12 @@ def character_portrait_rel_path(character_id: int) -> str:
 
     为什么不直接用三视图：三个视角并排会被模型理解成"三个人"，
     于是画出一排一模一样的角色（实测过）。裁剪见 services/portrait.py。
-    这个文件是中间产物，不需要入库、不需要暴露给前端。
+
+    文件名里带版本号 `v2`：裁剪算法改进后（比如加了尺寸归一化），
+    旧缓存必须失效 —— 否则会一直复用"上一版算法裁出来的坏图"，
+    而且因为缓存是按 mtime 判断的，改了代码也不会重裁（踩过）。
     """
-    return f"characters/{character_id}/portrait.png"
+    return f"characters/{character_id}/portrait_v2.png"
 
 
 def line_audio_rel_path(line_id: int) -> str:

@@ -101,5 +101,38 @@ def test_grey_gradient_background_still_detected():
     assert len(_content_strips(image)) == 3
 
 
+def test_narrow_portrait_is_normalized_to_a_safe_canvas():
+    """回归：**竖屏**三视图裁出来的细条会被万相拒收。
+
+    真实事故：智谱画的 768x1344 竖屏三视图，裁出单个角色只有 138x1344（长宽比 1:9.7），
+    万相返回 `Error validating image ... resolution must ...`，两张画面直接失败。
+    所以尺寸不安全的参考图要归一化到安全画布。
+    """
+    from app.services.portrait import _PORTRAIT_SIZE, _needs_normalize, _normalize
+
+    narrow = Image.new("RGB", (138, 1344), (40, 60, 90))
+    assert _needs_normalize(narrow) is True
+    assert _normalize(narrow).size == _PORTRAIT_SIZE
+
+    # 267x768 是万相能接受的（实测 200），不该被加白边改变内容
+    acceptable = Image.new("RGB", (267, 768), (40, 60, 90))
+    assert _needs_normalize(acceptable) is False
+
+
+def test_portrait_from_a_portrait_sheet_is_normalized():
+    """竖屏三视图（三个视角挤在 768 宽里）裁出来必须归一化，否则会被拒。"""
+    from app.services.portrait import _PORTRAIT_SIZE
+
+    character_id = 987004
+    sheet_rel = media.character_sheet_rel_path(character_id, "png")
+    media.save_bytes(sheet_rel, b"")
+    _draw_figures(3, width=768, height=1344).save(media.absolute_path(sheet_rel))
+
+    portrait = build_portrait(character_id, sheet_rel)
+    assert portrait is not None
+    with Image.open(portrait) as crop:
+        assert crop.size == _PORTRAIT_SIZE, "细条必须被归一化，否则万相会 400"
+
+
 def test_portrait_of_missing_sheet_returns_none():
     assert build_portrait(987003, "characters/987003/nope.png") is None

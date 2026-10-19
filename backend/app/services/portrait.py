@@ -31,6 +31,37 @@ _MIN_RUN_RATIO = 0.06
 #: 这一列至少要有这么大比例的像素是"墨"，才算有内容
 _MIN_INK_RATIO = 0.08
 
+#: 参考图的"安全画布"。万相对输入图有分辨率要求，太窄/太小的图会被判
+#: `Error validating image ... resolution must ...`（实测：138x1344 的图直接被拒）。
+#: 所以裁完之后要归一化到一块安全的画布上。
+_PORTRAIT_SIZE = (640, 1024)
+#: 短边小于这个值就认为"太窄"，需要归一化（267x768 这种是能通过的，所以门槛设 256）
+_MIN_SAFE_SIDE = 256
+#: 长宽比超过这个值也算"太窄"
+_MAX_SAFE_RATIO = 4.0
+
+
+def _normalize(image: Image.Image) -> Image.Image:
+    """把裁出来的图放到一块安全画布上（等比缩放 + 白底居中）。
+
+    为什么需要：三视图若是**竖屏**生成的（三个视角挤在 768 宽里），
+    裁出来的单个人物可能只有 138px 宽、1344 高 —— 长宽比 1:9.7，
+    万相直接拒绝（`Error validating image ... resolution must ...`）。
+    """
+    canvas = Image.new("RGB", _PORTRAIT_SIZE, (255, 255, 255))
+    scale = min(_PORTRAIT_SIZE[0] / image.width, _PORTRAIT_SIZE[1] / image.height)
+    size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
+    resized = image.resize(size, Image.LANCZOS)
+    canvas.paste(resized, ((_PORTRAIT_SIZE[0] - size[0]) // 2, (_PORTRAIT_SIZE[1] - size[1]) // 2))
+    return canvas
+
+
+def _needs_normalize(image: Image.Image) -> bool:
+    """尺寸够、比例正常就原样用（避免无谓地加白边改变模型看到的内容）。"""
+    short_side = min(image.width, image.height)
+    ratio = max(image.width, image.height) / max(1, short_side)
+    return short_side < _MIN_SAFE_SIDE or ratio > _MAX_SAFE_RATIO
+
 
 def _content_strips(image: Image.Image) -> list[tuple[int, int]]:
     """找出"竖直方向有内容的连续列块"，返回原图坐标的 [(x0, x1), ...]。
@@ -122,6 +153,18 @@ def build_portrait(character_id: int, sheet_rel_path: str) -> Path | None:
                 )
             else:
                 logger.info("角色 %s 的三视图看起来只有一个人物，直接当参考图用", character_id)
+
+            # 尺寸不合格的（比如竖屏三视图裁出来的细条）放到安全画布上
+            if _needs_normalize(image):
+                before = f"{image.width}x{image.height}"
+                image = _normalize(image)
+                logger.info(
+                    "角色 %s 的参考图 %s 超出安全尺寸，已归一化到 %s",
+                    character_id,
+                    before,
+                    f"{image.width}x{image.height}",
+                )
+
             portrait_abs.parent.mkdir(parents=True, exist_ok=True)
             image.save(portrait_abs, format="PNG")
     except Exception as exc:  # noqa: BLE001 —— 裁剪失败不该让整张图生成失败
