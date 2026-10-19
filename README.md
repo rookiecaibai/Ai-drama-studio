@@ -1,343 +1,347 @@
-# AI Drama Studio
+<div align="center">
+
+# 🎬 AI 短剧工作室
+
+**从一句大纲，到一条能发出去的竖屏短剧 MP4**
+
+把「AI 写分镜 → 定角色 → 画画面 → 配音 → 让画面动起来 → 合成成片」串成一条流水线的 Web Service
 
 [![CI](https://github.com/rookiecaibai/Created-by-Ai-ai-drama-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/rookiecaibai/Created-by-Ai-ai-drama-studio/actions/workflows/ci.yml)
+![tests](https://img.shields.io/badge/tests-222%20passed-brightgreen)
+![python](https://img.shields.io/badge/Python-3.12-blue)
+![fastapi](https://img.shields.io/badge/FastAPI-0.143-009688)
+![react](https://img.shields.io/badge/React-18-61dafb)
 
-一个 AI 短剧创作的 Web Service：管理短剧 → 剧集 → 分镜，并调用大模型生成可拍摄的分镜脚本。
+</div>
 
-> 这个项目的目标不只是"能跑"，而是**每一层都能讲清为什么这么设计**。
-> 架构决策的完整理由见 [docs/00-架构决策.md](docs/00-架构决策.md)；
-> 零基础全景介绍见 [docs/04-项目全景介绍.md](docs/04-项目全景介绍.md)。
+---
+
+## 这是什么
+
+一个完整的 **AI 短剧生产流水线**。你给它一段本集大纲，它会一路做到一段竖屏 MP4：
+
+```
+① 一句大纲
+      │  大模型
+      ▼
+② 分镜脚本（景别 / 运镜 / 时长 / 画面描述 / 台词）
+      │
+      ├──► 角色卡（性别 · 年龄 · 外貌 · 职业 · 背景）
+      │         └──► 三视图（正面 / 正侧面 / 背面）
+      │                   └──► 裁出「单人正面」当参考图
+      │
+      ▼
+③ 文生图：每个镜头一张画面（768×1344）
+      │
+      ├──► TTS：逐句情绪 → 语速，按角色分配音色
+      ▼
+④ 图生视频：每张静图 → 一段会动的 5 秒片段
+      ▼
+⑤ ffmpeg 合成：片段（或静图）+ 配音 → 竖屏 MP4
+```
+
+**不只"能跑"** —— 这个项目里每个非显然的设计都写了"为什么这么做"，以及踩坑时看到的具体报错。
+完整理由见 [docs/00-架构决策.md](docs/00-架构决策.md)，零基础全景见 [docs/04-项目全景介绍.md](docs/04-项目全景介绍.md)。
+
+---
+
+## 目录
+
+- [亮点](#亮点)
+- [快速开始](#快速开始)
+- [配置](#配置)
+- [技术栈](#技术栈)
+- [架构](#架构)
+- [目录结构](#目录结构)
+- [测试与 CI](#测试与-ci)
+- [文档](#文档)
+- [成本与免责](#成本与免责)
+
+---
+
+## 亮点
+
+### 1. 四种模态都可插拔，换厂商不改业务代码
+
+文本 / 图片 / 配音 / 视频各自有一套 `ABC + mock + openai_compat + factory`，
+业务层只依赖接口。**不填任何 API Key 也能跑通全流程**（默认走 `mock`，产出假图假音），
+所以 clone 下来就能点、能测、能看懂结构。
+
+### 2. BYOK：每部短剧可以用自己的 Key
+
+「短剧设置」里可以给文本 / 图片 / 配音 / 视频分别指定 provider、`base_url`、模型名和自己的 API Key。
+
+| 安全设计 | 做法 |
+|---|---|
+| Key 落库 | **Fernet 加密**（`enc:v1:` 前缀），不是明文 |
+| 接口回显 | **永不返回明文**，只给掩码 `sk-abc…9f2`；且只有"用户自己填的"才显示 |
+| `base_url` | **SSRF 校验**：只放行 https，拒绝内网 / 环回 / 链路本地地址 |
+| 服务端兜底 | `ALLOW_SERVER_KEY_FALLBACK=false` 可切成**严格 BYOK**（公网部署建议开） |
+
+### 3. 角色一致性：从"文字描述"到"参考图"
+
+先用角色卡生成 **三视图**（正面 / 正侧面 / 背面），再拿它去约束每个镜头。
+
+这里有两个实测出来的关键认知：
+
+- **整张三视图不能直接当参考图** —— 三个视角并排会被模型理解成"三个人"，画出一排一模一样的角色。
+  所以要先裁成**单人单视角**（自动检测内容列块，取最左边那个正面），并归一化到安全画布。
+- **不是所有厂商都吃参考图** —— `ImageProvider` 上有 `supports_reference` 能力标志，
+  不支持的厂商（如智谱 cogview 系列，纯文本输入）自动降级为文字锚定并记日志，换厂商只改一个实现。
+
+### 4. 配音：情绪是有代价的，所以只说能做的
+
+- 台词解析会拆出「谁说的」和「说什么」，**角色名绝不会被念出来**（早期 bug，用语音转文字反证过）
+- 每个角色按性别 + 年龄段从音色矩阵取 `音色 / 音高 / 语速`，支持变调
+- 逐句让 LLM 判断情绪与强度 → 映射到**语速**
+- **诚实边界**：情绪目前只有"语速"一个维度，做不到"急迫"和"愤怒"听起来不一样。
+  想真正贴合情绪，需要换支持 instructions 的 TTS 并打开 `TTS_INSTRUCTIONS_PARAM`
+
+### 5. "画面到底动了没有"是可验证的
+
+不做图生视频，成片就是「静图定格 + 配音」的幻灯片。项目对此有**像素级断言**（提取片段首末帧逐像素比对）：
+
+| 状态 | 像素变化 |
+|---|---|
+| 静态图 | 0.0% |
+| 接入动态片段 | 12.4% ~ 64% |
+
+三种模式：`none`（退回静图）/ `mock`（本地 ffmpeg 运镜，**免费、不联网、画面真的会动**）/ `openai_compat`（真调图生视频模型）。
+
+### 6. 异步任务 + 配额 + 调用流水
+
+一张任务表支持**六种任务**（`kind = shots / images / clips / turnaround / audio / video`），
+同时支持**集级**和**剧级**两种粒度（角色三视图不属于任何一集）。
+`202 + 轮询`，带进度（`total / done`）；服务重启后自动把卡住的"假进行中"任务标记为失败。
+配额**按用途分别设限**（分镜 / 大纲 / 画面 / 动态镜头 / 三视图 / 配音 / 成片），并记录调用流水。
+
+---
+
+## 快速开始
+
+### 方式一：Docker（一条命令）
+
+```bash
+cd backend                 # ⚠️ 必须在 backend 目录下执行，compose 的相对路径以它为准
+docker compose up --build
+```
+
+打开 **<http://localhost:8080>**（Nginx 的 8080，不是后端的 8000）。
+
+| 设计点 | 说明 |
+|---|---|
+| 配置来源 | compose 自动读取 `backend/.env` 做变量替换，**密钥不进 compose 文件** |
+| 前端怎么进镜像 | 多阶段构建：node 阶段 `npm run build` → 只把 `dist` 拷进 python 镜像 |
+| 媒体存哪 | 挂载宿主机 `backend/media/`，容器重建不丢 |
+| 容器里要装 ffmpeg 吗 | **不用**，`imageio-ffmpeg` 自带含 libx264 的静态构建 |
+| 公网能访问后端吗 | 不能：api 只 `expose`，8000 不出容器网络，只有 Nginx 对外 |
+| 表结构 | 容器入口自动 `alembic upgrade head`（幂等） |
+
+### 方式二：本地跑
+
+```bash
+# 0) 在【项目根目录】建虚拟环境（是 ai-drama-studio 这一层，不是 backend/）
+python -m venv .venv
+.venv\Scripts\activate
+
+# 1) 装依赖
+python -m pip install -r backend\requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 2) 配置（可选 —— 不配也能跑：SQLite + mock 模型）
+cd backend
+copy .env.example .env
+
+# 3) 启动
+python run.py                              # 或 python -m uvicorn app.main:app --reload --port 8000
+```
+
+- 界面：**<http://127.0.0.1:8000>**
+- 接口文档：**<http://127.0.0.1:8000/docs>**（Swagger UI **本地自托管**，不依赖境外 CDN）
+
+### 前端开发模式
+
+```bash
+cd frontend
+npm install --registry=https://registry.npmmirror.com
+npm run dev      # http://localhost:5173，/api 自动代理到后端 8000
+npm run build    # 产物落 frontend/dist，由 FastAPI 托管
+```
+
+### 数据库迁移
+
+```bash
+cd backend
+.venv\Scripts\python.exe -m alembic upgrade head    # 升到最新
+.venv\Scripts\python.exe -m alembic check           # 检查模型与库是否一致
+```
+
+生产不用 `create_all`（它只建表、不改表）。开发默认 SQLite，生产换 MySQL 只需改 `DATABASE_URL`。
+
+---
+
+## 配置
+
+所有配置走环境变量（`backend/.env`，已被 gitignore 保护）。**全部可留空** —— 留空即 `mock`。
+
+| 变量 | 说明 |
+|---|---|
+| `DATABASE_URL` | 默认 SQLite；生产用 `mysql+pymysql://...?charset=utf8mb4` |
+| `JWT_SECRET_KEY` | 登录令牌签名密钥。**同时用于派生加密短剧 Key 的密钥** —— 换掉它，已存的用户 Key 会无法解密（会退化成"没有 Key"，不会 500） |
+| `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL` | 文本模型（如 DeepSeek） |
+| `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` / `IMAGE_BASE_URL` / `IMAGE_SIZE` | 文生图，镜头画面尺寸（默认 `768x1344`） |
+| `IMAGE_SHEET_SIZE` | **角色三视图**的画布，默认 `1344x768`（横向 —— 三个视角并排，竖屏会把人物压成细条） |
+| `WANX_API_KEY` / `WANX_MODEL` / `WANX_BASE_URL` | 万相（阿里云百炼）。`IMAGE_PROVIDER=wanx` 时使用，是**目前唯一支持参考图**的图片渠道 |
+| `TTS_PROVIDER` / `TTS_MODEL` / `TTS_VOICE` | 配音（如智谱 GLM-TTS） |
+| `TTS_INSTRUCTIONS_PARAM` | 厂商支持"语气参数"时填参数名，语音才真的能带情绪 |
+| `VIDEO_CLIP_PROVIDER` | `none` / `mock`（免费本地运镜）/ `openai_compat`（真图生视频） |
+| `ALLOW_SERVER_KEY_FALLBACK` | `true`（默认）：用户没填 Key 时用服务端 Key；**公网部署建议 `false`** |
+| `DAILY_*_LIMIT` | 各类调用每日配额 |
+| `IMAGE_MIN_INTERVAL_SEC` / `IMAGE_RETRY_ATTEMPTS` | 文生图节流与 429 重试（并发打满厂商限流是踩过的坑） |
+
+---
 
 ## 技术栈
 
 | 层 | 选型 | 一句话理由 |
 |---|---|---|
-| Web 框架 | FastAPI | 异步 + 自动生成 OpenAPI 文档 + Pydantic 校验，AI 类接口大量是慢 IO，异步收益明显 |
+| Web 框架 | FastAPI | 异步 + 自动 OpenAPI + Pydantic 校验；AI 接口大量是慢 IO |
 | 数据校验 | Pydantic v2 | 请求/响应契约显式化，前端不用猜字段 |
-| ORM | SQLAlchemy 2.0 | 类型注解式建模，迁移（Alembic）生态成熟 |
-| 数据库 | SQLite（开发）/ MySQL（生产） | 开发零配置起步，生产换成 MySQL 只需改一个环境变量 |
-| 大模型 | Provider 抽象 + Mock | 没有 API Key 也能跑通全流程和测试 |
-| 部署 | Docker + Nginx | 环境一致 + 反向代理/HTTPS 终止 |
-| 测试 | pytest + httpx | 依赖覆盖换测试库，不依赖外部服务 |
-| 接口文档 | Swagger UI / ReDoc（**本地自托管**） | 不依赖境外 CDN，内网和离线环境也能打开 `/docs` |
+| ORM | SQLAlchemy 2.1 | 类型注解式建模，Alembic 生态成熟 |
+| 数据库 | SQLite（开发）/ MySQL（生产） | 开发零配置，生产换一个环境变量 |
+| 前端 | Vite 5 + React 18 + TypeScript | 无框架负担，构建产物由后端同源托管（没有跨域问题） |
+| 部署 | Docker + Nginx | 环境一致 + 反向代理 |
+| 测试 | pytest + httpx | 依赖覆盖换测试库，**不联网、不花钱** |
 
-> **关于接口文档为什么自托管**：FastAPI 默认让 `/docs` 去 `cdn.jsdelivr.net` 加载
-> Swagger UI 的 JS。该 CDN 在国内网络下经常连不上，表现是
-> **HTML 返回 200、页面却一片空白，且服务端日志毫无异常** —— 非常难排查。
-> 现在这两个文件放在 `backend/app/static/` 里由本项目自己提供，
-> 并且有回归测试（`test_docs_uses_local_assets`）保证 CDN 不会被重新引入。
-
-## 快速开始
-
-### 在 PyCharm 里（推荐，见 [docs/02-PyCharm配置.md](docs/02-PyCharm配置.md)）
-
-项目自带的虚拟环境 `.venv` 已经建好并装齐依赖，**直接用就行**：
-
-```
-File → Open → 选择 ai-drama-studio 根目录（不要选 backend）
-右下角解释器 → Add Local Interpreter → Existing → .venv\Scripts\python.exe
-右键 backend 文件夹 → Mark Directory as → Sources Root
-右键 backend/run.py → Debug
-```
-
-### 在命令行里
-
-```bash
-# 0) 先在【项目根目录】建虚拟环境 —— 是 ai-drama-studio 这一层，不是 backend/ 里！
-#    （虚拟环境放根目录，PyCharm 能自动识别，也符合 .gitignore 的约定）
-python -m venv .venv
-.venv\Scripts\activate          # 命令行提示符前面出现 (.venv) 就表示激活成功
-
-# 1) 装依赖（国内用镜像；若 pip 卡死且无输出，先执行 python -m pip cache purge 清缓存）
-python -m pip install -r backend\requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 2) 进入后端目录
-cd backend
-
-# 3) 配置（可选，不配也能跑：默认 SQLite + mock 模型）
-copy .env.example .env
-
-# 4) 启动（--reload 是热重载；调试断点请用 python run.py）
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-打开 <http://127.0.0.1:8000/docs> 就能看到自动生成的接口文档并直接点着调。
-
-```bash
-# 跑测试
-python -m pytest
-```
-
-## 接口一览
-
-> 除 `/health`、`/docs` 和注册登录外，所有接口都需要请求头
-> `Authorization: Bearer <token>`（token 由 `/auth/login` 返回）。
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/v1/health` | 健康检查（含数据库连通性，公开） |
-| POST | `/api/v1/auth/register` | 注册 |
-| POST | `/api/v1/auth/login` | 登录（表单），返回 JWT |
-| GET | `/api/v1/auth/me` | 当前登录用户 |
-| POST | `/api/v1/dramas` | 创建短剧 |
-| GET | `/api/v1/dramas?offset=0&limit=20` | 我的短剧列表（分页，只返回自己的） |
-| GET | `/api/v1/dramas/{id}` | 短剧详情（含剧集；别人的剧返回 404） |
-| PATCH | `/api/v1/dramas/{id}` | 局部更新 |
-| DELETE | `/api/v1/dramas/{id}` | 删除（级联删剧集和镜头） |
-| POST | `/api/v1/dramas/{id}/episodes` | 新增一集（集数自动递增） |
-| GET | `/api/v1/dramas/{id}/episodes` | 剧集列表 |
-| POST | `/api/v1/dramas/{id}/synopsis/generate` | **AI 起草本集大纲**（依据标题 + 前几集内容，只返回建议不写库） |
-| GET | `/api/v1/episodes/{id}` | 剧集详情（含分镜） |
-| PATCH | `/api/v1/episodes/{id}` | 修改本集标题 / 大纲（用户自己写的内容） |
-| POST | `/api/v1/episodes/{id}/generate` | **创建 AI 生成分镜任务**（202，异步执行） |
-| POST | `/api/v1/episodes/{id}/images` | **批量生成镜头画面**（文生图，202，异步执行；会自动带上出场角色的外貌） |
-| POST | `/api/v1/dramas/{id}/characters/turnarounds` | **为角色生成三视图**（设定图，202，剧级任务；旁白自动跳过） |
-| PATCH | `/api/v1/characters/{id}` | **改角色卡**（性别/年龄/外貌/职业/背景/音色/锁定外貌提示词） |
-| PATCH | `/api/v1/shots/{id}` | **手动编辑镜头**（改台词会作废该镜头的配音） |
-| GET | `/api/v1/dramas/{id}/settings` | **短剧设置**（名称 + 四个模态的模型配置；**Key 只返回掩码**） |
-| PATCH | `/api/v1/dramas/{id}/settings` | 改短剧设置 / 填自己的 API Key（加密落库，永不回显） |
-| POST | `/api/v1/episodes/{id}/clips` | **批量生成动态片段**（图生视频，让画面真的动起来，202） |
-| POST | `/api/v1/episodes/{id}/audio` | **批量生成台词配音**（TTS，只给有台词的镜头，202） |
-| POST | `/api/v1/episodes/{id}/video` | **合成竖屏 MP4**（本地 ffmpeg，202，异步执行） |
-| GET | `/api/v1/shots/{id}/image` | 读取镜头画面（**需登录 + 归属校验**，返回 PNG/JPEG 字节） |
-| GET | `/api/v1/shots/{id}/clip` | 预览镜头动态片段（需鉴权，返回 MP4） |
-| GET | `/api/v1/characters/{id}/turnaround` | 读取角色三视图（需鉴权） |
-| GET | `/api/v1/shots/{id}/audio` | 读取镜头配音（同样需鉴权，Content-Type 按实际格式给） |
-| GET | `/api/v1/episodes/{id}/video` | 播放/下载这一集的成片（需鉴权，返回 MP4） |
-| GET | `/api/v1/tasks/{id}` | 查询任务状态（轮询这个接口） |
-| GET | `/api/v1/tasks?episode_id={id}` | 我的生成任务列表 |
-
-### 创作流程（前端实际的使用顺序）
-
-```
-① 建短剧（剧名 / 题材 / 一句话梗概 / 视觉风格）
-② ＋ 新增一集 → 弹面板：本集标题 + 本集内容（大纲）
-      └─ 「AI 生成大纲」：依据本集标题 + 前面几集的内容起草，可改后再保存
-③ 该集下方紧接着「镜头生成」：填镜头数 + 额外要求 → AI 生成分镜
-      └─ 202 + 任务号，前端轮询进度，完成后刷新分镜表
-④ 点「生成画面」：把每个镜头的英文提示词交给文生图模型 → 分镜表里出现缩略图
-⑤ 点「生成动态镜头」：把静图变成真的会动的短片（图生视频）
-      └─ 分镜表里的缩略图会变成静音循环播放的小视频，一眼看到"画面在动"
-⑥ 点「生成配音」：把每个镜头的台词交给 TTS → 只有台词的镜头会生成，可在表里播放
-      └─ 多角色对白会按角色分配不同音色（角色表可由 AI 分析、也可人工修改）
-⑦ 点「合成视频」：按镜头顺序，把画面/动态片段 + 配音按时长拼成竖屏 MP4 → 在线播放/下载
-```
-
-### 关于第⑤步：为什么必须有它
-
-不做这一步，成片就是「每张图定格 + 配音」的幻灯片 —— **画面完全静止，只有声音在动**。
-本项目对"画面到底动了没有"有**像素级的自动化断言**（提取片段首末帧逐像素比对），
-实测数据：静态图 0.0% 像素变化，接入动态片段后 12.4%~64% 像素变化。
-
-- `VIDEO_CLIP_PROVIDER=mock`：本地 ffmpeg 运镜（推近/拉远/左右平移），**免费、不联网**，画面确实会动（是运镜，不是人物真做动作）
-- `VIDEO_CLIP_PROVIDER=openai_compat`：真调图生视频模型（如智谱 `cogvideox-3`，异步提交 + 轮询）
-- 没启用、或某个镜头的片段生成失败时，合成环节会**自动退回静态图**，成片照样能出
-
-**两条重要的设计原则**：
-
-1. **用户写的大纲永远优先于模型的建议** —— 生成分镜时只读它、不会覆盖它
-   （`script_service` 里"仅当为空才填"的逻辑）。
-2. **生成的图片不进静态目录，必须带鉴权读取** —— 静态目录谁猜到 URL 谁就能看，
-   而用户生成的画面是私有数据（见 [shots.py](backend/app/api/v1/shots.py)）。
-
-### 试一遍完整流程
-
-```bash
-# 1) 注册 + 登录拿 token
-curl -X POST http://127.0.0.1:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"demo","password":"pw12345678"}'
-
-curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d 'username=demo&password=pw12345678'
-# 把返回里的 access_token 存成 TOKEN
-
-# 2) 建剧
-curl -X POST http://127.0.0.1:8000/api/v1/dramas \
-  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-  -d '{"title":"雨夜便利店","genre":"都市","logline":"雨夜的一次重逢"}'
-
-# 3) 加一集（假设剧 id=1）
-curl -X POST http://127.0.0.1:8000/api/v1/dramas/1/episodes \
-  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-  -d '{"title":"第1集"}'
-
-# 4) 生成分镜（假设剧集 id=1）
-curl -X POST http://127.0.0.1:8000/api/v1/episodes/1/generate \
-  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-  -d '{"shot_count":6}'
-```
-
-> 更省事的方式：打开 PyCharm 里的 [api.http](backend/api.http)，按注释顺序点绿色三角即可。
-
-## 数据库迁移（Alembic）
-
-生产环境不用 `create_all`（它只会新建表、不会改表），表结构变更走**迁移脚本**：
-
-```bash
-cd backend
-
-# 模型变了之后：自动生成迁移脚本（生成后务必人工 review！）
-.venv\Scripts\python.exe -m alembic revision --autogenerate -m "描述这次变更"
-
-# 把库升级到最新
-.venv\Scripts\python.exe -m alembic upgrade head
-
-# 检查模型和库是否一致（不一致=忘了生成迁移）
-.venv\Scripts\python.exe -m alembic check
-
-# 回滚一步（演练：先 downgrade -1 再 upgrade head）
-.venv\Scripts\python.exe -m alembic downgrade -1
-```
-
-## 切换到本机 MySQL（已实测通过）
-
-本机 MySQL 9.6 已建好库 `ai_drama`（utf8mb4）和专用账号 `drama`，
-迁移和全链路冒烟均已实测。切过去只需要环境变量：
-
-```bash
-cd backend
-# PowerShell 里设置（或写进 .env，注意 .env 已被 gitignore 保护）
-$env:DATABASE_URL = "mysql+pymysql://drama:drama_password_change_me@127.0.0.1:3306/ai_drama?charset=utf8mb4"
-$env:AUTO_CREATE_TABLES = "false"     # 表结构由 alembic upgrade head 管理
-.venv\Scripts\python.exe -m alembic upgrade head
-.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
-```
-
-**安全提醒**：你本机 MySQL 的 root 密码目前是 `123456`，太弱了。
-如果这台机器连过公网或共享过网络，建议改掉：
-`ALTER USER 'root'@'localhost' IDENTIFIED BY '一个强密码';`
-（我们的应用只用 `drama` 这个最小权限账号，不受影响。）
-
-## 用 Docker 一键起（api + MySQL + Nginx）
-
-> ⚠️ **这套配置尚未实机验证过**（开发机没装 Docker）。已做过 45 项静态检查，
-> 实机步骤和排查表见 [docs/05-部署验证清单.md](docs/05-部署验证清单.md)。
-
-```bash
-cd backend                 # 必须在 backend 目录下执行（compose 的相对路径以它为准）
-docker compose up --build  # 首次会构建镜像（装 pip/npm 依赖）
-```
-
-然后打开 **<http://localhost:8080>**（走的是 Nginx 的 8080，不是后端的 8000）。
-
-**几个关键设计**：
-
-| 点 | 说明 |
-|---|---|
-| 配置从哪来 | compose 会**自动读取 `backend/.env`** 做变量替换，所以密钥不用写进 compose 文件（那样会跟着 Git 泄露） |
-| 前端怎么进镜像 | 多阶段构建：node 阶段 `npm run build` → 只把 `dist` 拷进 python 镜像（node 不会留在成品里） |
-| 生成的媒体存哪 | 挂在宿主机的 `backend/media/`，**容器重建不会丢** |
-| 容器里要装 ffmpeg 吗 | **不用**：requirements 里的 `imageio-ffmpeg` 自带含 libx264 的静态构建 |
-| 谁能从公网访问后端 | 只有 Nginx：api 用 `expose` 而非 `ports`，8000 端口不出容器网络 |
-| 表结构怎么建 | 容器入口自动跑 `alembic upgrade head`（幂等），应用侧 `AUTO_CREATE_TABLES=false` |
-
-```bash
-docker compose ps                        # 看健康状态
-docker compose logs -f api               # 看后端日志
-docker compose exec db mysql -udrama -p... ai_drama -e "show tables;"
-docker compose down                      # 停止（媒体文件保留）
-docker compose down -v                   # 停止并删库（数据全清）
-```
+> **为什么接口文档自托管**：FastAPI 默认让 `/docs` 去境外 CDN 拉 Swagger UI 的 JS。
+> 该 CDN 在国内常连不上，表现是 **HTML 返回 200、页面却一片空白、服务端日志毫无异常** —— 极难排查。
+> 现在静态文件放在 `backend/app/static/`，并有回归测试保证 CDN 不会被重新引入。
 
 ---
 
-## 前端（Vite + React + TypeScript）
+## 架构
 
-前端代码在 `frontend/`，构建产物由 FastAPI 直接托管（同源部署，没有跨域问题）。
-
-```bash
-cd frontend
-
-# 开发模式：热更新 + 自动把 /api 代理到后端 8000
-npm install --registry=https://registry.npmmirror.com
-npm run dev          # 打开 http://localhost:5173
-
-# 生产构建：产物落到 frontend/dist，后端启动后由它托管
-npm run build
+```
+浏览器
+  │
+  ├─ 前端（React）  由 FastAPI 同源托管，或 Nginx 静态分发
+  │
+  ▼
+Nginx ──► FastAPI（路由层很薄）
+              │
+              ├─ services/         业务逻辑
+              │    ├─ script_service      大纲 → 分镜
+              │    ├─ cast_service        角色表
+              │    ├─ character_look      角色卡 → 画面提示词
+              │    ├─ portrait            三视图 → 单人参考图
+              │    ├─ emotion_service     逐句情绪 → 语速
+              │    ├─ voice_profile       性别/年龄 → 音色矩阵
+              │    ├─ tts_service         多角色逐句配音
+              │    ├─ clip_service        图生视频
+              │    ├─ video_service       ffmpeg 合成
+              │    └─ model_config        BYOK 解析 + 密钥加解密
+              │
+              ├─ llm/ images/ tts/ videos/    四种模态 Provider（各含 mock）
+              │
+              └─ SQLAlchemy ──► SQLite / MySQL
+                                 └─ Alembic 迁移（12 条）
 ```
 
-构建完重新启动后端，打开 <http://127.0.0.1:8000> 就是完整界面：
-注册/登录 → 建短剧 → 加集 → **AI 生成分镜（202 + 轮询进度）** → 查看分镜表。
+**几条贯穿全项目的原则**
+
+1. **用户写的大纲永远优先于模型的建议** —— 生成分镜时只读它、不覆盖它
+2. **生成的媒体不进静态目录**，必须走「登录 + 归属校验」的接口读取（静态目录谁猜到 URL 谁就能看）
+3. **数据库的级联删除不会删磁盘文件** —— 删除业务数据时要顺手清理，否则一堆孤儿文件
+4. **层与层的契约用 Pydantic 显式化**，ORM 模型不直接对外
+
+---
 
 ## 目录结构
 
 ```
 backend/
 ├── app/
-│   ├── main.py              # 应用组装（工厂函数 + lifespan + 前端托管）
+│   ├── main.py              # 应用组装（工厂 + lifespan + 前端托管）
 │   ├── core/                # 配置、日志、统一错误、JWT、限流
 │   ├── db/                  # ORM 基类、引擎/会话、数据模型
-│   ├── schemas/             # 对外契约（Pydantic），与 ORM 模型分离
+│   ├── schemas/             # 对外契约（Pydantic），与 ORM 分离
 │   ├── api/                 # 路由层（薄）+ 依赖注入
-│   └── services/            # 业务逻辑层
-│       ├── dialogue.py      # 台词解析：拆出「谁说的」和「说什么」
-│       ├── cast_service.py  # 角色表（AI 分析 + 人工可改）
-│       ├── emotion_service.py   # 逐句情绪 → 语速
-│       ├── voice_profile.py # 音色矩阵（性别/年龄 → 音色+音高+语速）
-│       ├── tts_service.py   # 多角色逐句配音
-│       ├── clip_service.py  # 图生视频（逐镜头动态片段）
-│       ├── video_service.py # ffmpeg 合成（优先动态片段，退回静图）
-│       └── llm/ images/ tts/ videos/   # 四种模态的 Provider 抽象（各含 mock）
-├── tests/                   # pytest 163 个用例（用假模型 + 临时库，不联网）
-├── alembic/                 # 数据库迁移脚本（versions/ 是版本历史，10 条）
-├── Dockerfile               # 多阶段构建：node 构建前端 → python 运行时
-├── docker-compose.yml       # api + MySQL + nginx 一键起
+│   ├── services/            # 业务逻辑 + 四种模态 Provider 抽象
+│   └── static/              # 自托管的 Swagger UI 资源
+├── tests/                   # 222 个用例，假模型 + 临时库，不联网
+├── alembic/                 # 12 条迁移脚本
+├── tools/check_secrets.py   # 密钥泄露扫描（工作区 / 暂存区 / 全历史）
+├── Dockerfile               # 多阶段：node 构建前端 → python 运行时
+├── docker-compose.yml       # api + MySQL + nginx
 └── nginx/nginx.conf         # 反向代理 + 媒体流 + 前端兜底
 
-frontend/                    # Vite + React + TS 前端
-├── src/                     # api 客户端、登录页、工作区、AuthMedia、类型定义
-└── dist/                    # 构建产物（gitignore，由 FastAPI 托管）
+frontend/                    # Vite + React + TS
+└── src/                     # api 客户端、工作区、角色卡、短剧设置、消息灯箱
 
-.dockerignore                # ⚠️ 在仓库根：防止 backend/.env 被构建进镜像
+scripts/hooks/pre-commit     # 提交前拦截疑似密钥（core.hooksPath 安装）
+docs/                        # 6 篇文档：架构决策 / 代码导览 / PyCharm / 零基础 / 全景 / 部署
 ```
 
-## 当前状态（诚实清单）
+---
 
-**已实测通过：**
+## 测试与 CI
 
-- ✅ 后端接口 + 测试：**163 个用例全绿**，CI 自动跑
-- ✅ **用户可控的每集大纲**：自己写 / PATCH 修改 / AI 依据「标题 + 前几集」起草（只给建议不写库）
-- ✅ **文生图**：镜头提示词 → 画面，异步任务 + 进度，图片由**带鉴权的接口**提供（真实智谱已出图）
-- ✅ **多角色情绪配音**：台词解析（角色名绝不被念出）→ 角色表 → 逐句情绪 → 各自音色/音高/语速合成 → 拼接
-  （真实 GLM-TTS 已出真声；情感标签不能塞进文本这点用**语音转文字反证**过）
-- ✅ **图生视频**：静图 → 真的会动的短片（真实 CogVideoX-2 已出片，5.1 秒/1080x1920）
-  - 三种模式：`none` 退回静图 / `mock` 本地运镜（免费且画面真会动）/ `openai_compat` 真模型
-  - **像素级断言**守护"画面真的在动"：静态图 0.0% 像素变化，接入后 45%~64%
-- ✅ **短剧设置（用户自带 Key / BYOK）**：每个短剧可独立配置文本/图片/配音/视频四种模型与 API Key
-  - Key **加密落库、接口永不回显**（只给掩码 `sk-abc…9f2`），掩码也只在"用户自己填的"情况下才显示
-  - 不填则回退服务端默认；`ALLOW_SERVER_KEY_FALLBACK=false` 可切成**严格 BYOK**（公网部署建议开）
-  - `base_url` 做 **SSRF 校验**：只放行 https 且非内网/环回地址
-- ✅ **角色卡 + 三视图**：性别/年龄/外貌/职业/背景存成可编辑数据；三视图（正面/侧面/背面设定图）
-  用来**先确认长相**，再批量画整集 —— 省掉"画完全片才发现角色不对"的返工
-  - **角色一致性靠 `look_prompt` 文本锚定**（每个镜头都带上前面的外貌描述）：
-    实测镜头画面里出现的角色与角色卡描述一致（黑色齐短发 + 深蓝制服）
-  - 智谱的画图模型（cogview-3-flash / cogview-4 / glm-image）**都是纯文本输入**，
-    不接受参考图 —— 所以 `ImageProvider` 上留了 `supports_reference` 能力标志，
-    不支持时自动降级为纯文本并记日志，换厂商后改两行即可接上
-  - 三视图排版是**模型侧的不稳定项**（实测 5 个提示词版本，效果在"插画三视角"和"写实单人"之间跳），
-    所以产品解法是给「重画三视图」按钮，而不是追求一次成功
-- ✅ **镜头手动编辑**：改画面描述/台词/时长/图像提示词；改台词会**作废**该镜头派生的逐句音频
-  （台词变了配音就是错的），改画面描述则保留旧图（花过钱的结果，删不删由用户决定）
-- ✅ **视频合成**：优先用动态片段、没有就退回静图，逐段标准化后拼接成竖屏 MP4（720x1280）
-- ✅ JWT 鉴权 + 资源归属：用户只能操作自己的短剧与媒体
-- ✅ Alembic 迁移：**11 条**迁移链，`alembic check` 零差异，有集成测试守护
-- ✅ 调用配额/限流：**按用途分别设限**（分镜/大纲/画面/动态镜头/角色三视图/配音/成片）+ 调用流水 + 登录防爆破
-- ✅ 生成任务异步化：一张任务表支持**六种任务**（`kind=shots/images/clips/turnaround/audio/video`），
-  同时支持**集级**和**剧级**两种粒度（角色三视图不属于任何一集），202 + 轮询 + 进度
-- ✅ 服务重启后自动把卡住的"假进行中"任务标记为失败
-- ✅ 真实大模型已接通：DeepSeek（文本）+ 智谱（图片/配音/视频）
-- ✅ 前端：Vite + React + TS，构建产物由 FastAPI 托管；分镜表可直接循环预览动态片段
-- ✅ MySQL 生产路径：本机 MySQL 9.6 实测通过（utf8mb4 生效）
+```bash
+cd backend
+python -m pytest          # 222 个用例
+```
 
-**还没做 / 需要注意：**
+| | |
+|---|---|
+| 用例数 | **222**（24 个测试文件） |
+| 外部依赖 | **零** —— 用依赖覆盖注入假模型 + 临时 SQLite，不联网、不花钱 |
+| 覆盖的事故 | 429 限流重试、参考图被拒降级、迁移与模型是否一致、任务重启恢复、越权 404、删集清媒体…… |
+| CI | GitHub Actions（`.github/workflows/ci.yml`） |
 
-- ✅ **Docker / Nginx 整链路已实机验证**（2026-10-15）：三个容器全部 healthy，
-  `/`、`/api/v1/health`、`/docs` 全部 200，10 条迁移在容器内 MySQL 上执行成功，
-  **媒体持久化**和迁移幂等都已验证，镜像 441MB（多阶段构建生效）
-- ⚠️ **角色一致性**：同一角色在不同镜头里长相会变（图生视频通病，需要固定角色参考图）
-- ⚠️ 任务队列用的是 FastAPI `BackgroundTasks`（同进程内存），生产应换 Celery/RQ + Redis
-- ⚠️ 视频接口不支持 Range 请求，播放器拖不动进度条
-- ⚠️ 容器内**没跑过真实视频合成**（合成逻辑在 CI 的 Linux 上测过，但没在容器里实际跑，
-  因为要花真钱）；也还没上传到云服务器配 HTTPS 域名
+**提交前还有一道自动化防线**：pre-commit 钩子会扫描暂存区的疑似密钥并阻止提交
+（这个仓库是公开的，误提交 = 立刻泄露）：
+
+```powershell
+pwsh scripts/install_hooks.ps1                    # 安装一次即可
+python backend/tools/check_secrets.py --history   # 想扫全历史随时跑
+```
+
+---
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [00-架构决策](docs/00-架构决策.md) | 每个选型的理由，以及**没选**的方案为什么没选 |
+| [01-代码导览](docs/01-代码导览.md) | 按请求链路走一遍代码，适合接手者 |
+| [02-PyCharm 配置](docs/02-PyCharm配置.md) | 解释器、Sources Root、运行配置 |
+| [03-从零理解这个项目](docs/03-从零理解这个项目.md) | 零基础向 |
+| [04-项目全景介绍](docs/04-项目全景介绍.md) | 全景 + 踩坑合集（最有料的一篇） |
+| [05-部署验证清单](docs/05-部署验证清单.md) | Docker 实机验证结果与排查表 |
+
+---
+
+## 成本与免责
+
+**跑真模型是要花钱的**，请先看价格再批量点按钮：
+
+| 动作 | 大致量级 |
+|---|---|
+| 一集 6 个镜头 · 文生图 | 免费模型 0 元；付费 0.06~0.1 元/张 |
+| 一集 6 个镜头 · 图生视频 | 0.5~2.5 元/次 → **一集 3~15 元** |
+| 角色三视图 | 每个角色一次图片调用 |
+| 配音 | 按字符计，可忽略 |
+
+> **建议顺序**：先只用「生成画面 → 生成配音 → 合成视频」看一版静图片子，
+> 确认分镜节奏和画面都满意了，再花钱点「生成动态镜头」。
+
+**内容合规**：AI 生成的人脸、声音和情节由使用者负责。请勿用于伪造他人形象、声音或违法内容。
+
+**许可证**：本仓库暂未声明开源许可证。如需使用请先联系作者。
+
+---
+
+<div align="center">
+
+如果这个项目对你有帮助，欢迎点个 ⭐
+
+</div>
