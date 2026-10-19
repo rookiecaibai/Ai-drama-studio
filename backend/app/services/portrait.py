@@ -24,16 +24,24 @@ from app.services import media
 
 logger = logging.getLogger(__name__)
 
-#: 灰度小于这个值算"有内容"（三视图的背景是白色，人物和衣服都远低于这个值）
-_CONTENT_THRESHOLD = 235
 #: 扫描用的缩小尺寸：原图 1M 像素逐列扫太慢，缩到 192 宽再扫（快 20 倍，精度够）
 _SCAN_WIDTH = 192
 #: 窄于这个比例的"内容块"视为噪点（比如右下角的签名）
 _MIN_RUN_RATIO = 0.06
+#: 这一列至少要有这么大比例的像素是"墨"，才算有内容
+_MIN_INK_RATIO = 0.08
 
 
 def _content_strips(image: Image.Image) -> list[tuple[int, int]]:
-    """找出"竖直方向有内容的连续列块"，返回原图坐标的 [(x0, x1), ...]。"""
+    """找出"竖直方向有内容的连续列块"，返回原图坐标的 [(x0, x1), ...]。
+
+    **不要用固定的"白色阈值"判断背景**（第一版就是这么写的，被万相打脸了）：
+    智谱/万相生成的设定图背景常常是**浅灰渐变**，固定阈值会把整幅图都判成有内容，
+    于是三块检测成一块，裁剪整个失效 —— 参考图又变回"三个人"。
+    所以这里：
+      ① 用**全图中位数**估背景亮度（背景占绝大多数像素），阈值取"比背景暗 25"；
+      ② 只统计**中间竖带**（15%~85%），避开脚下的地面阴影 —— 阴影会把人物之间连起来。
+    """
     gray = image.convert("L")
     width, height = gray.size
     scale = width / _SCAN_WIDTH
@@ -41,12 +49,22 @@ def _content_strips(image: Image.Image) -> list[tuple[int, int]]:
     data = small.tobytes()
     scan_w, scan_h = small.size
 
-    has_content = [False] * scan_w
-    for y in range(scan_h):
+    # 采样取中位数（全排序 1M 个字节没必要）
+    sample = sorted(data[::7])
+    background = sample[len(sample) // 2] if sample else 255
+    threshold = min(background - 25, 235)
+
+    y0 = int(scan_h * 0.15)
+    y1 = int(scan_h * 0.85)
+    rows = max(1, y1 - y0)
+    ink = [0] * scan_w
+    for y in range(y0, y1):
         row = data[y * scan_w : (y + 1) * scan_w]
         for x, value in enumerate(row):
-            if value < _CONTENT_THRESHOLD:
-                has_content[x] = True
+            if value < threshold:
+                ink[x] += 1
+
+    has_content = [(count / rows) > _MIN_INK_RATIO for count in ink]
 
     runs: list[tuple[int, int]] = []
     start: int | None = None
@@ -89,13 +107,15 @@ def build_portrait(character_id: int, sheet_rel_path: str) -> Path | None:
             image = sheet.convert("RGB")
             strips = _content_strips(image)
             if len(strips) >= 2:
-                x0, x1 = max(strips, key=lambda run: run[1] - run[0])
-                # 两边各留一点余量，避免裁到边缘
-                margin = max(4, int((x1 - x0) * 0.06))
+                # 取**最左边**那个人：我们的三视图提示词要求的顺序是
+                # 「正面 → 正侧面 → 背面」，所以最左边就是正面。
+                # 参考图用正脸效果最好（侧面照给模型的信息少一半）。
+                x0, x1 = strips[0]
+                margin = max(4, int((x1 - x0) * 0.08))
                 box = (max(0, x0 - margin), 0, min(image.width, x1 + margin), image.height)
                 image = image.crop(box)
                 logger.info(
-                    "角色 %s 三视图检测到 %s 个人物，取最宽的那个裁成参考图 (%s)",
+                    "角色 %s 三视图检测到 %s 个人物，取最左边的正面裁成参考图 (%s)",
                     character_id,
                     len(strips),
                     f"{image.width}x{image.height}",

@@ -239,19 +239,37 @@ def build_llm(
 
 
 def build_image(
-    db: Session, drama: Drama, settings: Settings, fallback: ImageProvider | None = None
+    db: Session,
+    drama: Drama,
+    settings: Settings,
+    fallback: ImageProvider | None = None,
+    *,
+    size_override: str | None = None,
 ) -> ImageProvider:
+    """构造这个短剧实际要用的文生图 Provider。
+
+    `size_override`：**换一块画布**。角色三视图要用横向画布（三个视角并排），
+    和镜头画面的竖屏不一样。注意一旦指定了它，就**必须重新构造**而不能用 fallback ——
+    因为 fallback 是按镜头尺寸造出来的，拿它画三视图尺寸就是错的。
+    """
     cfg = resolve(db, drama, "image", settings)
-    if cfg.source == "server" and fallback is not None:
+    if cfg.source == "server" and fallback is not None and size_override is None:
         return fallback
-    logger.info("短剧 %s 文生图: %s/%s（Key 来源=%s）", drama.id, cfg.provider, cfg.model, cfg.source)
+    logger.info(
+        "短剧 %s 文生图: %s/%s size=%s（Key 来源=%s）",
+        drama.id,
+        cfg.provider,
+        cfg.model,
+        size_override or cfg.extra["size"],
+        cfg.source,
+    )
     merged = settings.model_copy(
         update={
             "image_provider": cfg.provider,
             "image_api_key": cfg.api_key,
             "image_base_url": cfg.base_url,
             "image_model": cfg.model,
-            "image_size": cfg.extra["size"],
+            "image_size": size_override or cfg.extra["size"],
         }
     )
     return build_image_provider(merged)

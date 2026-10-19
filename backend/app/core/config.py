@@ -172,6 +172,11 @@ class Settings(BaseSettings):
     wanx_base_url: str = "https://dashscope.aliyuncs.com/api/v1"
     wanx_model: str = "wan2.7-image"
 
+    # 角色三视图的画布尺寸：**横向**，因为三视图是"三个全身视角从左到右并排"。
+    # 用镜头的竖屏 768x1344 去画，三个人会被压成三条细条，看不清形体。
+    # 镜头画面继续用 IMAGE_SIZE（竖屏，要贴合成片）。
+    image_sheet_size: str = "1344x768"
+
     # 视频厂商的私有参数透传（JSON 字符串），格式见 IMAGE_EXTRA_PARAMS 的说明。
     # 例：VIDEO_EXTRA_PARAMS={"watermark_enabled": false}
     video_extra_params: str = ""

@@ -78,5 +78,28 @@ def test_single_figure_sheet_is_used_as_is():
         assert crop.size == sheet.size
 
 
+def test_grey_gradient_background_still_detected():
+    """回归测试：万相生成的背景是**浅灰渐变**，不是纯白。
+
+    第一版裁剪用的是固定的"白色阈值 235"，结果整幅图都被判成有内容 ->
+    三块检测成一块 -> 裁剪失效 -> 参考图又变回整张三视图 -> 模型画出三个人。
+    这个坑是真踩过的，所以用"浅灰底 + 渐变"的图把它锁住。
+    """
+    width, height = 1344, 768
+    image = Image.new("RGB", (width, height), (238, 240, 242))
+    draw = ImageDraw.Draw(image)
+    # 纵向渐变，模拟摄影棚背景的光照不均
+    for y in range(0, height, 8):
+        shade = min(252, 232 + y // 40)
+        draw.rectangle([0, y, width, y + 7], fill=(shade, shade + 2, shade + 4))
+    slot = width // 3
+    for index in range(3):
+        left = index * slot + slot // 4
+        right = (index + 1) * slot - slot // 4
+        draw.rectangle([left, 150, right, 620], fill=(40, 60, 90))
+
+    assert len(_content_strips(image)) == 3
+
+
 def test_portrait_of_missing_sheet_returns_none():
     assert build_portrait(987003, "characters/987003/nope.png") is None

@@ -179,7 +179,12 @@ def create_turnaround_task(
 
     # 用户的短剧里可能填了自己的文生图模型与 Key，那就用它（见 services/model_config.py）。
     # 没填则 fallback 到依赖注入进来的全局 provider —— 这也让测试的依赖覆盖继续生效。
-    provider = model_config.build_image(db, drama, get_settings(), fallback=provider)
+    #
+    # **三视图用横向画布**：它是"三个全身视角从左到右并排"，
+    # 用镜头画面的竖屏尺寸会把三个人压成三条细条。
+    provider = model_config.build_image(
+        db, drama, get_settings(), fallback=provider, size_override=get_settings().image_sheet_size
+    )
 
     quota.ensure_allowed(db, user.id, kind="turnaround")
     log = quota.record(
